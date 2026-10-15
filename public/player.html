@@ -1,0 +1,39 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Projection player</title>
+<style>
+  html, body { margin: 0; height: 100%; background: #000; overflow: hidden; cursor: none; }
+  canvas { display: block; width: 100vw; height: 100vh; }
+  #msg { position: fixed; left: 12px; bottom: 10px; font: 14px system-ui, sans-serif; color: #888; display: none; }
+</style>
+</head>
+<body>
+<canvas id="c"></canvas>
+<div id="msg"></div>
+<script type="module">
+  import { Engine } from './js/engine.js';
+  const msg = document.getElementById('msg');
+  let engine;
+  try {
+    engine = new Engine(document.getElementById('c'), { contentLong: 1024 });
+  } catch (e) {
+    msg.style.display = 'block';
+    msg.textContent = 'Player error: ' + e.message;
+    throw e;
+  }
+  engine.start();
+  // Live state from the server; EventSource reconnects by itself and the show keeps running meanwhile.
+  const es = new EventSource('/api/events');
+  es.addEventListener('state', (e) => engine.setState(JSON.parse(e.data).state));
+  // Double-click to go full screen when testing on a PC (the Pi runs Chromium in kiosk mode).
+  addEventListener('dblclick', () => document.documentElement.requestFullscreen?.().catch(() => {}));
+  // Keep the screen awake where the browser supports it.
+  const wake = () => navigator.wakeLock?.request('screen').catch(() => {});
+  wake();
+  document.addEventListener('visibilitychange', () => { if (!document.hidden) wake(); });
+</script>
+</body>
+</html>

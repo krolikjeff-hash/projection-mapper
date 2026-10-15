@@ -1,0 +1,13 @@
+{
+  "name": "projection-mapper",
+  "version": "0.1.0",
+  "description": "Wi-Fi controlled projection mapper: a full-screen WebGL player plus a mapping/control page, served by a small Node server.",
+  "type": "module",
+  "private": true,
+  "scripts": {
+    "start": "node server.js"
+  },
+  "engines": {
+    "node": ">=18"
+  }
+}

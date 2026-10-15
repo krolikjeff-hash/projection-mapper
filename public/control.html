@@ -1,0 +1,34 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Projection Mapper</title>
+<link rel="stylesheet" href="css/control.css">
+</head>
+<body>
+<header>
+  <h1>Projection Mapper</h1>
+  <span id="status" class="status">Connecting…</span>
+  <div class="spacer"></div>
+  <button id="btn-align" title="Show test grids on the projector so you can line up the corners">Align</button>
+  <button id="btn-blackout" title="Projector output off">Blackout</button>
+  <a class="button" href="/player" target="_blank" title="Open the full-screen player (this is what the projector shows)">Player ↗</a>
+</header>
+<main>
+  <section id="stage">
+    <div id="preview">
+      <canvas id="gl"></canvas>
+      <canvas id="overlay"></canvas>
+    </div>
+    <p class="hint">Click a surface or mask to select it. Drag the round handles to pin corners; drag inside to move it.
+      Arrow keys nudge the selected handle (Shift = ×10). Double-click a mask edge to add a point; Delete removes one.</p>
+  </section>
+  <aside id="panel">
+    <nav id="tabs"></nav>
+    <div id="tab-body"></div>
+  </aside>
+</main>
+<script type="module" src="js/control.js"></script>
+</body>
+</html>

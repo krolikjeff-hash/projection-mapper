@@ -1,0 +1,59 @@
+:root {
+  --bg: #121218; --panel: #1b1b24; --line: #2c2c3a; --text: #e8e8f0; --muted: #8a8aa0;
+  --accent: #ff8a1f; --accent2: #ffd400; --danger: #ff4d5e; --on: #2bd96b;
+}
+* { box-sizing: border-box; }
+html, body { margin: 0; height: 100%; background: var(--bg); color: var(--text); font: 14px/1.4 system-ui, -apple-system, Segoe UI, sans-serif; }
+header { display: flex; align-items: center; gap: 8px; padding: 8px 12px; border-bottom: 1px solid var(--line); background: var(--panel); flex-wrap: wrap; }
+header h1 { font-size: 16px; margin: 0 8px 0 0; color: var(--accent); }
+.status { color: var(--muted); font-size: 13px; }
+.status .live { color: var(--on); }
+.status .off { color: var(--danger); }
+.spacer { flex: 1; }
+button, .button, select, input { font: inherit; color: var(--text); }
+button, .button {
+  background: #2a2a38; border: 1px solid #3a3a4c; border-radius: 6px; padding: 6px 12px; cursor: pointer;
+  text-decoration: none; display: inline-block; touch-action: manipulation; min-height: 34px;
+}
+button:hover, .button:hover { border-color: var(--accent); }
+button.on { background: var(--accent); border-color: var(--accent); color: #111; font-weight: 600; }
+button.danger { color: var(--danger); }
+button.small { padding: 2px 8px; min-height: 28px; }
+input[type=text], input[type=number], input[type=time], select {
+  background: #11111a; border: 1px solid #3a3a4c; border-radius: 6px; padding: 5px 8px; min-height: 32px;
+}
+input[type=range] { width: 100%; accent-color: var(--accent); }
+input[type=color] { width: 48px; height: 32px; border: 1px solid #3a3a4c; border-radius: 6px; background: none; padding: 2px; }
+main { display: flex; height: calc(100% - 52px); }
+#stage { flex: 1; min-width: 0; padding: 12px; display: flex; flex-direction: column; gap: 8px; overflow: auto; }
+#preview { position: relative; width: 100%; max-height: calc(100vh - 140px); background: #000; border: 1px solid var(--line); align-self: center; }
+#preview canvas { position: absolute; inset: 0; width: 100%; height: 100%; display: block; }
+#overlay { touch-action: none; cursor: crosshair; }
+.hint { color: var(--muted); font-size: 12px; margin: 0; }
+#panel { width: 400px; border-left: 1px solid var(--line); background: var(--panel); display: flex; flex-direction: column; min-height: 0; }
+#tabs { display: flex; border-bottom: 1px solid var(--line); }
+#tabs button { flex: 1; border: 0; border-radius: 0; background: none; padding: 10px 4px; color: var(--muted); border-bottom: 2px solid transparent; }
+#tabs button.on { color: var(--text); border-bottom-color: var(--accent); font-weight: 600; }
+#tab-body { padding: 12px; overflow: auto; flex: 1; }
+.row { display: flex; gap: 6px; align-items: center; flex-wrap: wrap; margin-bottom: 8px; }
+.list { list-style: none; margin: 0 0 12px; padding: 0; border: 1px solid var(--line); border-radius: 6px; }
+.list li { display: flex; gap: 8px; align-items: center; padding: 8px 10px; border-bottom: 1px solid var(--line); cursor: pointer; }
+.list li:last-child { border-bottom: 0; }
+.list li.sel { background: #2a2433; box-shadow: inset 3px 0 var(--accent2); }
+.list .muted, .muted { color: var(--muted); font-size: 12px; }
+.list .grow { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+h3 { font-size: 13px; text-transform: uppercase; letter-spacing: .06em; color: var(--muted); margin: 16px 0 8px; }
+.field { display: grid; grid-template-columns: 120px 1fr; gap: 8px; align-items: center; margin-bottom: 8px; }
+.field > label { color: var(--muted); font-size: 13px; }
+.field .ctl { display: flex; gap: 6px; align-items: center; min-width: 0; }
+.val { min-width: 3.5em; text-align: right; color: var(--muted); font-variant-numeric: tabular-nums; }
+.entry { border: 1px solid var(--line); border-radius: 8px; padding: 10px; margin-bottom: 10px; background: #16161e; }
+.entry.now { border-color: var(--accent); }
+.entry .row select { flex: 1; min-width: 0; }
+.note { color: var(--muted); font-size: 12px; margin: 4px 0 10px; }
+@media (max-width: 900px) {
+  main { flex-direction: column; height: auto; }
+  #panel { width: 100%; border-left: 0; border-top: 1px solid var(--line); }
+  #preview { max-height: none; }
+  .field { grid-template-columns: 100px 1fr; }
+}
