@@ -57,9 +57,12 @@ addEventListener('resize', layoutView);
 
 const STATUS = {
   queued: 'Waiting to brew…',
+  screening: 'Checking the spell book…',
   generating: 'In the cauldron…',
   testing: 'Almost ready…',
+  held: 'Waiting for the host’s OK',
   ready: 'Up next',
+  rejected: 'Not right for our family party. Try another spooky idea!',
   playing: 'ON THE DRIVEWAY NOW!',
   played: 'Played ✓',
   failed: 'Fizzled',
@@ -93,7 +96,7 @@ function render() {
   for (const m of mine) {
     let status = STATUS[m.status] || 'Sent';
     if (m.position) status += ` · #${m.position}`;
-    ml.append(li(m.title || `“${m.prompt}”`, status, m.status === 'playing' ? 'on' : m.status === 'failed' ? 'err' : ''));
+    ml.append(li(m.title || `“${m.prompt}”`, status, m.status === 'playing' ? 'on' : ['failed', 'rejected'].includes(m.status) ? 'err' : ''));
   }
 
   const ql = $('#queue');

@@ -103,7 +103,7 @@ export function watchQueue(cb, id = showId) {
   return onSnapshot(queueCol(id), (snap) => {
     const items = snap.docs.map((d) => ({ id: d.id, ...d.data(), createdAt: d.data().createdAt?.toMillis?.() || 0 }))
       .sort((a, b) => a.createdAt - b.createdAt);
-    const waiting = items.filter((i) => ['queued', 'generating', 'testing', 'ready'].includes(i.status));
+    const waiting = items.filter((i) => ['queued', 'screening', 'generating', 'testing', 'held', 'ready'].includes(i.status));
     for (const i of items) i.position = waiting.indexOf(i) >= 0 ? waiting.indexOf(i) + 1 : null;
     cb(items);
   });
@@ -116,6 +116,7 @@ export async function submitPrompt(prompt, by) {
 
 export const queueAction = {
   remove: (itemId) => updateDoc(doc(queueCol(), itemId), { status: 'removed' }),
+  approve: (itemId) => updateDoc(doc(queueCol(), itemId), { status: 'ready' }),     // "Hold for my OK" mode
   retry: (itemId) => updateDoc(doc(queueCol(), itemId), { status: 'queued', error: null, retry: Date.now() }),
   play: (itemId) => playItem(itemId),
   skip: () => updateDoc(nowRef(), { until: Date.now() }),

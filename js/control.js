@@ -539,7 +539,8 @@ function showTab() {
 let partyQueue = { items: [] };
 const act = (fn) => () => fn().catch((e) => alert(e.message));
 
-const PARTY_STATUS = { queued: 'waiting', generating: 'Claude is writing it…', testing: 'compile test…', ready: 'ready', playing: '▶ playing', played: 'played', failed: 'failed', removed: 'removed' };
+const PARTY_STATUS = { queued: 'waiting', screening: 'safety check…', generating: 'Claude is writing it…', testing: 'compile test…',
+  held: 'needs your OK', ready: 'ready', playing: '▶ playing', played: 'played', failed: 'failed', rejected: '⛔ turned down', removed: 'removed' };
 
 function partyTab() {
   const p = state.party, ps = partySurface(state), pn = now && now.itemId ? now : null;
@@ -553,16 +554,21 @@ function partyTab() {
     rangeField('Seconds each', 15, 180, 5, p.seconds, (v) => { p.seconds = v; commit(); }),
     field('When line is empty', h('select', { value: p.replay ? 'replay' : 'playlist', onchange: (e) => { p.replay = e.target.value === 'replay'; commit(true); } },
       h('option', { value: 'replay' }, 'Replay guests\' animations'), h('option', { value: 'playlist' }, 'Show my playlist'))),
+    field('Hold for my OK', h('label', { style: 'display:flex;gap:6px;align-items:center' },
+      h('input', { type: 'checkbox', checked: p.approve, onchange: (e) => { p.approve = e.target.checked; commit(true); } }),
+      'Each finished animation waits for Approve')),
+    h('p', { class: 'note' }, 'Every request first goes through a family-friendly check: gore, violence against people, sexual content, hate, drugs or alcohol, profanity, real people and self-harm are turned down, and rude display names become "A guest". Turned-down requests show here with the reason.'),
     h('h3', {}, 'Now'),
     pn && Date.now() < pn.until
       ? h('div', { class: 'row' }, h('span', { class: 'grow' }, `▶ ${pn.title} · by ${pn.by}`), btn('Skip', act(queueAction.skip), 'small'))
       : h('p', { class: 'note' }, p.enabled ? 'Showing the normal playlist until a guest animation is ready.' : 'Requests are off.'),
     h('h3', {}, `Queue (${items.length})`),
     items.length ? h('ul', { class: 'list' }, items.map((i) => h('li', { title: i.error || '' },
-      h('span', { class: 'grow' }, h('b', {}, i.title || '…'), ' ', h('span', { class: 'muted' }, `“${i.prompt}” · ${i.by}`),
-        i.status === 'failed' || i.error ? h('div', { class: 'muted', style: 'color:#ff8a95' }, i.error) : null),
+      h('span', { class: 'grow' }, h('b', {}, i.title || '…'), ' ', h('span', { class: 'muted' }, `“${i.prompt}” · ${i.by}${i.byOriginal ? ` (typed “${i.byOriginal}”)` : ''}`),
+        i.status === 'failed' || i.status === 'rejected' || i.error ? h('div', { class: 'muted', style: 'color:#ff8a95' }, i.error) : null),
       h('span', { class: 'muted' }, PARTY_STATUS[i.status] || i.status),
-      i.sceneId && i.status !== 'playing' && btn('▶', act(() => queueAction.play(i.id)), 'small', 'Play now'),
+      i.status === 'held' && btn('Approve', act(() => queueAction.approve(i.id)), 'small on', 'Let it play'),
+      i.sceneId && !['playing', 'held'].includes(i.status) && btn('▶', act(() => queueAction.play(i.id)), 'small', 'Play now'),
       i.status === 'failed' && btn('↻', act(() => queueAction.retry(i.id)), 'small', 'Try again'),
       btn('✕', act(() => queueAction.remove(i.id)), 'small danger', 'Remove')))) : h('p', { class: 'note' }, 'No requests yet.'),
     h('h3', {}, 'Guest link'),

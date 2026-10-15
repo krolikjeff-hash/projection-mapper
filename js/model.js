@@ -29,8 +29,9 @@ export function defaultState() {
     masks: [],
     // Campbell, CA by default; start can follow sunset.
     schedule: { enabled: false, start: { type: 'sunset', offset: -10, time: '18:00' }, end: '22:00', lat: 37.287, lon: -121.95 },
-    // Party mode: guests' generated animations take over one surface in turn (see party-server.js).
-    party: { enabled: false, surfaceId: null, seconds: 45, replay: true },
+    // Party mode: guests' generated animations take over one surface in turn (functions/index.js, cloud.js).
+    // approve: "Hold for my OK" - finished animations wait for the host's Approve before they can play.
+    party: { enabled: false, surfaceId: null, seconds: 45, replay: true, approve: false },
     partyNow: null, // { itemId, sceneId, title, by, startedAt, until } while a guest animation plays
   };
 }
