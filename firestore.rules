@@ -1,0 +1,55 @@
+rules_version = '2';
+// Hosts (keep in step with HOSTS in js/cloud.js and storage.rules) can change everything. Guests, who are signed in
+// anonymously, can only add a prompt to an open show's queue. The Cloud Function uses the Admin SDK (bypasses rules).
+service cloud.firestore {
+  match /databases/{database}/documents {
+    function isHost() {
+      return request.auth != null && request.auth.token.email_verified == true
+        && request.auth.token.email in ['krolikjeff@gmail.com'];
+    }
+    function signedIn() { return request.auth != null; }
+
+    match /shows/{show} {
+      allow read: if true;
+      allow write: if isHost();
+
+      match /live/{doc} {
+        allow read: if true;
+        allow write: if isHost();
+      }
+
+      match /queue/{item} {
+        allow read: if true;
+        allow create: if signedIn()
+          && request.resource.data.keys().hasOnly(['prompt', 'by', 'uid', 'status', 'createdAt'])
+          && request.resource.data.uid == request.auth.uid
+          && request.resource.data.status == 'queued'
+          && request.resource.data.prompt is string
+          && request.resource.data.prompt.size() >= 3 && request.resource.data.prompt.size() <= 300
+          && request.resource.data.by is string && request.resource.data.by.size() <= 24
+          && request.resource.data.createdAt == request.time
+          && get(/databases/$(database)/documents/shows/$(show)).data.partyOpen == true;
+        allow update, delete: if isHost();
+      }
+    }
+
+    // Generated animations: anyone can load them, only the function writes them.
+    match /scenes/{id} {
+      allow read: if true;
+      allow write: if isHost();
+    }
+
+    // The function asks a real GPU (any open player or setup page) to compile a shader and report back.
+    match /compileTests/{id} {
+      allow read: if signedIn();
+      allow update: if signedIn() && resource.data.status == 'pending'
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['status', 'ok', 'log', 'testedAt'])
+        && request.resource.data.status == 'done';
+    }
+
+    match /layouts/{id} {
+      allow read: if true;
+      allow write: if isHost();
+    }
+  }
+}

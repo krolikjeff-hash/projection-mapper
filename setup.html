@@ -9,11 +9,14 @@
 <body>
 <header>
   <h1>Projection Mapper</h1>
+  <span id="show-picker"></span>
   <span id="status" class="status">Connecting…</span>
   <div class="spacer"></div>
   <button id="btn-align" title="Show test grids on the projector so you can line up the corners">Align</button>
   <button id="btn-blackout" title="Projector output off">Blackout</button>
-  <a class="button" href="/player" target="_blank" title="Open the full-screen player (this is what the projector shows)">Player ↗</a>
+  <a class="button" id="player-link" href="player.html" target="_blank" title="Open the full-screen player for this show (this is what the projector shows)">Player ↗</a>
+  <a class="button" id="guest-link" href="./" target="_blank" title="The guest page for this show">Guests ↗</a>
+  <span id="account" class="status" title="Signed-in host"></span>
 </header>
 <main>
   <section id="stage">

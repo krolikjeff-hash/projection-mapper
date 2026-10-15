@@ -1,14 +1,12 @@
 // Guest page: live view of the projection, a prompt box, and where each guest's request is in the queue.
 import { Engine } from './engine.js';
 import { surfaceOutline } from './geometry.js';
+import { watchShow, watchNow, watchQueue, submitPrompt, ensureSignedIn, auth } from './cloud.js';
 
 const $ = (s) => document.querySelector(s);
 const view = $('#view'), canvas = $('#gl');
-let state = null, queue = { items: [], avgSeconds: 60 };
-let mine = [];
-try { mine = JSON.parse(localStorage.getItem('pm_mine') || '[]'); } catch { mine = []; }
+let state = null, now = null, items = [];
 try { $('#by').value = localStorage.getItem('pm_by') || ''; } catch { /* private mode */ }
-const saveMine = () => { try { localStorage.setItem('pm_mine', JSON.stringify(mine.slice(-20))); } catch { /* ignore */ } };
 
 let engine = null;
 try { engine = new Engine(canvas, { preview: true, contentLong: 512 }); engine.start(); }
@@ -77,32 +75,30 @@ function li(title, status, cls) {
 }
 
 function render() {
-  const now = $('#now');
-  now.textContent = '';
-  const pn = state && state.partyNow;
-  if (state && !state.party.enabled) now.textContent = 'Requests are closed right now. Check back soon!';
-  else if (pn && Date.now() < pn.until) {
-    const b = document.createElement('b'); b.textContent = pn.title;
-    now.append('Now showing: ', b, ` · by ${pn.by}`);
-  } else now.textContent = 'Send an idea and it will appear here!';
-  $('#send').disabled = !!state && !state.party.enabled;
+  const nowEl = $('#now');
+  nowEl.textContent = '';
+  const open = state && state.party.enabled;
+  if (state && !open) nowEl.textContent = 'Requests are closed right now. Check back soon!';
+  else if (now && now.itemId && Date.now() < now.until) {
+    const b = document.createElement('b'); b.textContent = now.title;
+    nowEl.append('Now showing: ', b, ` · by ${now.by}`);
+  } else nowEl.textContent = 'Send an idea and it will appear here!';
+  $('#send').disabled = !!state && !open;
 
-  const byId = new Map(queue.items.map((i) => [i.id, i]));
+  const uid = auth.currentUser?.uid;
+  const mine = items.filter((i) => i.uid === uid && i.status !== 'removed').reverse();
   const ml = $('#mine');
   ml.textContent = '';
-  const myItems = mine.map((m) => ({ ...m, ...(byId.get(m.id) || {}) })).reverse();
-  $('#mine-card').hidden = !myItems.length;
-  for (const m of myItems) {
+  $('#mine-card').hidden = !mine.length;
+  for (const m of mine) {
     let status = STATUS[m.status] || 'Sent';
-    if (m.status === 'ready' || m.status === 'queued' || m.status === 'generating' || m.status === 'testing') {
-      if (m.position) status += ` · #${m.position}`;
-    }
+    if (m.position) status += ` · #${m.position}`;
     ml.append(li(m.title || `“${m.prompt}”`, status, m.status === 'playing' ? 'on' : m.status === 'failed' ? 'err' : ''));
   }
 
   const ql = $('#queue');
   ql.textContent = '';
-  const upcoming = queue.items.filter((i) => ['ready', 'testing', 'generating', 'queued'].includes(i.status)).sort((a, b) => a.position - b.position);
+  const upcoming = items.filter((i) => i.position).sort((a, b) => a.position - b.position);
   if (!upcoming.length) ql.append(Object.assign(document.createElement('li'), { className: 'empty', textContent: 'Nothing waiting. Yours could be next!' }));
   for (const i of upcoming.slice(0, 8)) ql.append(li(`${i.title || 'A mystery spell'} · ${i.by}`, STATUS[i.status]));
 }
@@ -116,28 +112,22 @@ $('#form').addEventListener('submit', async (e) => {
   $('#send').disabled = true;
   msg.className = 'msg'; msg.textContent = 'Sending…';
   try {
-    const r = await fetch('/api/queue', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ prompt, by }) });
-    const j = await r.json();
-    if (!r.ok) throw new Error(j.error || 'Something went wrong.');
-    mine.push({ id: j.id, prompt });
-    saveMine();
+    await submitPrompt(prompt, by);
     $('#prompt').value = '';
-    msg.textContent = `Got it! Claude is brewing your animation (about ${Math.max(30, queue.avgSeconds)} s), then it joins the line.`;
+    msg.textContent = 'Got it! Claude is brewing your animation (about a minute), then it joins the line.';
   } catch (err) {
     msg.className = 'msg err';
-    msg.textContent = err.message;
+    msg.textContent = /permission/i.test(err.message) ? 'Requests are closed right now.' : 'Something went wrong. Try again?';
+    console.error(err);
   } finally {
     $('#send').disabled = false;
     render();
   }
 });
 
-const es = new EventSource('/api/events');
-es.addEventListener('state', (e) => {
-  state = JSON.parse(e.data).state;
-  if (engine) engine.setState(state);
-  layoutView();
-  render();
-});
-es.addEventListener('queue', (e) => { queue = JSON.parse(e.data); render(); });
+const apply = () => { if (state && engine) engine.setState({ ...state, partyNow: now && now.itemId ? now : null }); };
+watchShow((s) => { state = s; apply(); layoutView(); render(); });
+watchNow((n) => { now = n; apply(); render(); });
+watchQueue((q) => { items = q; render(); });
+ensureSignedIn().then(render);
 setInterval(render, 5000);

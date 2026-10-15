@@ -1,0 +1,12 @@
+rules_version = '2';
+// Media for the image/video scene: anyone can view (players and previews), only hosts upload.
+service firebase.storage {
+  match /b/{bucket}/o {
+    match /media/{file=**} {
+      allow read: if true;
+      allow write: if request.auth != null && request.auth.token.email_verified == true
+        && request.auth.token.email in ['krolikjeff@gmail.com']
+        && request.resource.size < 500 * 1024 * 1024;
+    }
+  }
+}

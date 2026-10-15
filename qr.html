@@ -30,18 +30,16 @@
   <button id="printBtn">Print</button>
 </div>
 <script type="module">
-  // Guests get the plain http address on the home network: phones open it from a QR code without a certificate
-  // warning. Prefers a 192.168.x address, since "localhost" means nothing to a phone.
-  const info = await (await fetch('/api/auth')).json();
-  const lan = info.lan.find((ip) => ip.startsWith('192.168.')) || info.lan[0];
-  const host = /^(localhost|127\.)/.test(location.hostname) && lan ? lan : location.hostname;
-  const url = new URLSearchParams(location.search).get('url') || `http://${host}:${info.port}/`;
+  // The guest page for this show (?show=…), on the public GitHub Pages address: any phone, any connection.
+  const params = new URLSearchParams(location.search), show = params.get('show');
+  const url = params.get('url') || new URL(show ? `./?show=${encodeURIComponent(show)}` : './', location.href).href;
   const q = qrcode(0, 'M');
   q.addData(url);
   q.make();
   document.getElementById('qr').innerHTML = q.createSvgTag({ scalable: true, margin: 2 });
   document.getElementById('url').textContent = url;
   const wifiIn = document.getElementById('wifiIn'), wifi = document.getElementById('wifi');
+  wifiIn.placeholder = 'Optional extra line, e.g. "Ask for the Wi-Fi password at the door"';
   wifiIn.value = localStorage.getItem('pm_wifi') || '';
   const upd = () => { wifi.textContent = wifiIn.value; localStorage.setItem('pm_wifi', wifiIn.value); };
   wifiIn.oninput = upd; upd();

@@ -15,14 +15,18 @@ export default {
       st.el = null;
       st.src = p.src;
       if (p.src) {
-        const url = '/media/' + encodeURIComponent(p.src);
-        if (/\.(mp4|m4v|webm|mov)$/i.test(p.src)) {
+        // src is the file's Firebase Storage download URL; crossOrigin keeps the canvas usable as a texture
+        // (the bucket needs a CORS rule allowing GET from the site; see README).
+        const url = p.src;
+        if (/\.(mp4|m4v|webm|mov)(\?|$)/i.test(decodeURIComponent(p.src))) {
           const v = document.createElement('video');
+          v.crossOrigin = 'anonymous';
           v.muted = true; v.loop = true; v.playsInline = true; v.autoplay = true; v.src = url;
           v.play().catch(() => {});
           st.el = v;
         } else {
           const img = new Image();
+          img.crossOrigin = 'anonymous';
           img.src = url;
           st.el = img;
         }

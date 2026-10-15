@@ -1,0 +1,59 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Projection player</title>
+<style>
+  html, body { margin: 0; height: 100%; background: #000; overflow: hidden; cursor: none; }
+  canvas { display: block; width: 100vw; height: 100vh; }
+  #msg { position: fixed; left: 12px; bottom: 10px; font: 14px system-ui, sans-serif; color: #888; }
+  #msg button { font: inherit; cursor: pointer; }
+</style>
+</head>
+<body>
+<canvas id="c"></canvas>
+<div id="msg"></div>
+<script type="module">
+  import { Engine } from './js/engine.js';
+  import { watchShow, watchNow, ensureSignedIn, startCompileTester, startDriver, onUser, isHostUser, signInHost, showId } from './js/cloud.js';
+  const msg = document.getElementById('msg');
+  let engine;
+  try {
+    engine = new Engine(document.getElementById('c'), { contentLong: 1024 });
+  } catch (e) {
+    msg.textContent = 'Player error: ' + e.message;
+    throw e;
+  }
+  engine.start();
+
+  // Live show state and "now playing" from Firestore; it reconnects by itself and the show keeps running meanwhile.
+  let state = null, now = null;
+  const apply = () => state && engine.setState({ ...state, partyNow: now && now.itemId ? now : null });
+  watchShow((s) => { state = s; apply(); });
+  watchNow((n) => { now = n; apply(); });
+
+  // Signed in as the host, this player also runs the party rotation; anyone can compile-test guests' shaders.
+  let stopDriver = null;
+  onUser(async (u) => {
+    if (!u) { await ensureSignedIn(); return; }
+    if (isHostUser(u) && !stopDriver) stopDriver = startDriver(() => state);
+    msg.textContent = '';
+    if (!isHostUser(u)) {
+      // Shown for 20 s: sign in once with a mouse so this player can run the party rotation.
+      const b = document.createElement('button');
+      b.textContent = `Sign in as host (runs the party rotation for show "${showId}")`;
+      b.onclick = () => signInHost();
+      msg.append(b);
+      setTimeout(() => { msg.textContent = ''; }, 20000);
+    }
+  });
+  startCompileTester(engine);
+
+  addEventListener('dblclick', () => document.documentElement.requestFullscreen?.().catch(() => {}));
+  const wake = () => navigator.wakeLock?.request('screen').catch(() => {});
+  wake();
+  document.addEventListener('visibilitychange', () => { if (!document.hidden) wake(); });
+</script>
+</body>
+</html>

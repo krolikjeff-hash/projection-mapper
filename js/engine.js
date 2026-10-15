@@ -36,11 +36,21 @@ export function sceneParams(def, params) {
   return out;
 }
 
+// Built-in scenes are modules in /scenes; guests' generated scenes ("g-…") come from a loader the backend sets.
+let externalLoader = null;
+export function setSceneLoader(fn) { externalLoader = fn; }
+
+// The built-in scenes, for the setup page's pickers (GitHub Pages can't list a folder).
+export const BUILTIN_SCENES = ['magic-circle', 'ground-cracks', 'fog', 'spiders', 'ghosts', 'solid', 'media', 'grid'];
+
 const sceneModules = new Map();
 export function loadScene(id) {
   if (!sceneModules.has(id)) {
     const entry = { def: null, error: null };
-    entry.promise = import(`/scenes/${id}.js`).then((m) => { entry.def = m.default; }).catch((e) => { entry.error = e; console.warn('Scene failed to load:', id, e); });
+    const load = id.startsWith('g-') && externalLoader
+      ? externalLoader(id)
+      : import(new URL(`../scenes/${id}.js`, import.meta.url).href).then((m) => m.default);
+    entry.promise = load.then((def) => { entry.def = def; }).catch((e) => { entry.error = e; console.warn('Scene failed to load:', id, e); });
     sceneModules.set(id, entry);
   }
   return sceneModules.get(id);

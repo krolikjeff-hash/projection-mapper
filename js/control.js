@@ -1,13 +1,16 @@
-// Control page: live preview with drag handles for surfaces and masks, plus the settings panel.
-// Every change is pushed to the server, which forwards it to the player(s) at once.
-import { Engine, loadScene } from './engine.js';
+// Setup page: live preview with drag handles for surfaces and masks, plus the settings panel.
+// Every change is saved to Firestore, which pushes it to the player(s) at once. Host (Google sign-in) only.
+import { Engine, loadScene, BUILTIN_SCENES } from './engine.js';
 import { uid, newSurface, newMask, normalizeState, partySurface } from './model.js';
 import { meshFromQuad, meshCorners, surfaceOutline, pointInPolygon, centroid, fillInner, isEdgePin, resampleMesh } from './geometry.js';
 import { showWindow, isShowTime } from './sun.js';
+import {
+  showId, pageUrl, saveShow, watchShow, watchShows, watchNow, watchQueue, queueAction, startDriver, startCompileTester,
+  listLayouts, saveLayout, loadLayout, deleteLayout, listMedia, uploadMedia, onUser, isHostUser, signInHost, signOutUser, auth,
+} from './cloud.js';
 
 const $ = (s) => document.querySelector(s);
-const clientId = uid();
-let state = null;
+let state = null, now = null, shows = [];
 const scenes = new Map();
 let sceneIds = [], mediaFiles = [], layoutNames = [];
 let sel = { type: null, id: null, point: null }; // point: handle index, or 'move'
@@ -43,87 +46,80 @@ const sceneName = (id) => scenes.get(id)?.name || id;
 const timeStr = (d) => d.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
 
 // ---------- sync ----------
-let sendTimer = null, sendPending = false;
-function send() {
-  fetch('/api/state', { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ state, origin: clientId }) })
-    .catch(() => { connected = false; renderStatus(); });
-}
-function scheduleSend() {
-  if (sendTimer) { sendPending = true; return; }
-  send();
-  sendTimer = setTimeout(() => { sendTimer = null; if (sendPending) { sendPending = false; scheduleSend(); } }, 60);
-}
+let lastSaved = '';
 // Apply a change: preview, projector, overlay; rebuild the panel only when the structure changed.
 function commit(rebuild = false) {
   state.selected = sel.id ? { type: sel.type, id: sel.id } : null;
-  engine.setState(state);
-  scheduleSend();
+  applyEngine();
+  lastSaved = JSON.stringify({ ...state, partyNow: undefined });
+  saveShow(state);
   drawOverlay();
   if (rebuild) renderPanel();
 }
+const applyEngine = () => engine.setState({ ...state, partyNow: now && now.itemId ? now : null });
 
-function connectEvents() {
-  const es = new EventSource('/api/events');
-  es.onopen = () => { connected = true; renderStatus(); };
-  es.onerror = () => { connected = false; renderStatus(); };
-  es.addEventListener('state', (e) => {
-    const m = JSON.parse(e.data);
-    if (m.origin === clientId || drag) return;
+function connectLive() {
+  watchShow((s, raw) => {
+    connected = true;
+    if (drag) return;
+    if (raw && raw.stateJson === lastSaved) return; // our own write coming back
     const editing = document.activeElement && /INPUT|SELECT|TEXTAREA/.test(document.activeElement.tagName);
-    state = normalizeState(m.state);
+    const first = !state;
+    state = s;
     if (sel.id && !surface() && !mask()) sel = { type: null, id: null, point: null };
-    engine.setState(state);
+    if (first && state.surfaces[0]) sel = { type: 'surface', id: state.surfaces[0].id, point: null };
+    applyEngine();
+    sizeStage();
     drawOverlay();
     renderHeader();
-    if (!editing) renderPanel();
+    if (!editing || first) renderPanel();
   });
-  es.addEventListener('queue', () => refreshQueue());
-  // Compile-test guests' shaders here too, in case no player is open.
-  es.addEventListener('compile', (e) => {
-    const { nonce, fragment, params } = JSON.parse(e.data);
-    post('/api/compile', { nonce, ...engine.testCompile(fragment, params) });
+  watchNow((n) => { now = n; if (state) { applyEngine(); if (tab === 'party') renderPanel(); } });
+  watchQueue((q) => {
+    partyQueue = { items: q };
+    if (tab === 'party' && !(document.activeElement && /INPUT|SELECT|TEXTAREA/.test(document.activeElement.tagName))) renderPanel();
+  });
+  watchShows((list) => { shows = list; renderShowPicker(); });
+  // This page compile-tests guests' shaders and runs the party rotation, so a player isn't strictly required.
+  startCompileTester(engine);
+  startDriver(() => state);
+}
+
+// Host sign-in: Google account on the HOSTS list in cloud.js and firestore.rules.
+function authGate() {
+  return new Promise((resolve) => {
+    let box = null;
+    onUser((u) => {
+      if (isHostUser(u)) { if (box) box.remove(); box = null; resolve(u); return; }
+      if (box) box.remove();
+      box = h('div', { style: 'position:fixed;inset:0;background:#121218;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:14px;z-index:9;padding:16px;text-align:center' },
+        h('h1', { style: 'color:#ff8a1f;margin:0' }, 'Projection Mapper setup'),
+        h('p', { class: 'note' }, u && !u.isAnonymous ? `${u.email} is not a host for this show.` : 'Sign in with the host Google account to change the setup.'),
+        btn('Sign in with Google', () => signInHost().catch((e) => alert(e.message)), 'on'),
+        u && !u.isAnonymous ? btn('Sign out', () => signOutUser()) : null,
+        h('a', { href: pageUrl(''), style: 'color:#8a8aa0' }, 'Go to the guest page'));
+      document.body.append(box);
+    });
   });
 }
 
-// PIN screen: create one on first run, otherwise log in. The server remembers this browser afterwards.
-async function authGate() {
-  const a = await (await fetch('/api/auth')).json();
-  const lan = a.lan.find((ip) => ip.startsWith('192.168.')) || a.lan[0];
-  if (lan && /^(localhost|127\.)/.test(location.hostname)) guestHost = lan;
-  guestPort = a.port;
-  if (a.host && a.pinSet) return;
-  if (a.host && !a.pinSet) {
-    // First run: open, but nudge the host to choose a PIN before sharing the guest link.
-    return;
-  }
-  await new Promise((resolve) => {
-    const pin = h('input', { type: 'password', inputmode: 'numeric', placeholder: 'PIN', autofocus: true, style: 'font-size:20px;width:10em;text-align:center' });
-    const msg = h('p', { class: 'note' });
-    const box = h('div', { style: 'position:fixed;inset:0;background:#121218;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:12px;z-index:9' },
-      h('h1', { style: 'color:#ff8a1f;margin:0' }, 'Projection Mapper setup'),
-      h('p', { class: 'note' }, 'Enter the setup PIN.'),
-      h('form', { onsubmit: async (e) => {
-        e.preventDefault();
-        const r = await post('/api/auth', { pin: pin.value });
-        if (r.ok) { box.remove(); resolve(); } else { msg.textContent = (await r.json()).error; pin.value = ''; pin.focus(); }
-      } }, pin, ' ', h('button', { type: 'submit' }, 'Unlock')),
-      msg, h('a', { href: '/', style: 'color:#8a8aa0' }, 'Go to the guest page'));
-    document.body.append(box);
-    pin.focus();
-  });
-}
-
-async function pinSetupBanner() {
-  const a = await (await fetch('/api/auth')).json();
-  if (a.pinSet) return;
-  const pin = h('input', { type: 'password', inputmode: 'numeric', placeholder: '4–8 digits', style: 'width:8em' });
-  const bar = h('div', { style: 'background:#3a2410;padding:8px 12px;display:flex;gap:8px;align-items:center;flex-wrap:wrap' },
-    h('b', {}, 'Choose a setup PIN'), h('span', { class: 'muted' }, 'so guests can\'t change the setup:'), pin,
-    btn('Set PIN', async () => {
-      const r = await post('/api/auth', { newPin: pin.value });
-      if (r.ok) bar.remove(); else alert((await r.json()).error);
-    }));
-  document.body.prepend(bar);
+// Show picker in the header: one show per projector.
+function renderShowPicker() {
+  const host = $('#show-picker');
+  if (!host) return;
+  host.textContent = '';
+  const ids = new Set(shows.map((s) => s.id)); ids.add(showId);
+  host.append(h('select', {
+    value: showId, title: 'Show (one per projector)',
+    onchange: (e) => {
+      let id = e.target.value;
+      if (id === '__new') {
+        id = (prompt('Name for the new show (letters, numbers, dashes), e.g. garage') || '').toLowerCase().replace(/[^a-z0-9-]/g, '').slice(0, 30);
+        if (!id) { e.target.value = showId; return; }
+      }
+      location.href = pageUrl('setup.html', id);
+    },
+  }, [...ids].sort().map((id) => h('option', { value: id }, `Show: ${id}`)), h('option', { value: '__new' }, '+ New show…')));
 }
 
 // ---------- selection and editing ----------
@@ -473,17 +469,18 @@ function paramControl(entry, prm) {
     const file = h('input', { type: 'file', accept: 'image/*,video/*', style: 'display:none', onchange: async (e) => {
       const f = e.target.files[0];
       if (!f) return;
-      const name = f.name.replace(/[^A-Za-z0-9 _.()-]/g, '_');
       const up = h('span', { class: 'muted' }, ' Uploading…');
       e.target.parentElement.append(up);
-      await fetch('/api/media/' + encodeURIComponent(name), { method: 'PUT', body: f });
-      await refreshMedia();
-      entry.params[prm.key] = name;
-      commit(true);
+      try {
+        const url = await uploadMedia(f, (p) => { up.textContent = ` Uploading ${Math.round(p * 100)}%`; });
+        await refreshMedia();
+        entry.params[prm.key] = url;
+        commit(true);
+      } catch (err) { up.textContent = ' Upload failed: ' + err.message; }
     } });
     return field(prm.label,
       h('select', { value: val, onchange: (e) => set(e.target.value), style: 'flex:1;min-width:0' },
-        h('option', { value: '' }, '(none)'), mediaFiles.map((m) => h('option', { value: m }, m))),
+        h('option', { value: '' }, '(none)'), mediaFiles.map((m) => h('option', { value: m.url }, m.name))),
       file, btn('Upload…', () => file.click(), 'small'));
   }
   return field(prm.label, h('input', { type: 'text', value: val, onchange: (e) => set(e.target.value) }));
@@ -539,25 +536,17 @@ function showTab() {
 }
 
 // ---------- party ----------
-let partyQueue = { items: [] }, partyConfig = { apiKey: 'none', model: '' };
-let guestHost = location.hostname, guestPort = 8080;
-async function refreshQueue() {
-  partyQueue = await (await fetch('/api/queue?admin=1')).json();
-  if (tab === 'party' && !(document.activeElement && /INPUT|SELECT|TEXTAREA/.test(document.activeElement.tagName))) renderPanel();
-}
-async function refreshConfig() { partyConfig = await (await fetch('/api/config')).json(); }
-const post = (url, body) => fetch(url, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body || {}) });
+let partyQueue = { items: [] };
+const act = (fn) => () => fn().catch((e) => alert(e.message));
 
 const PARTY_STATUS = { queued: 'waiting', generating: 'Claude is writing it…', testing: 'compile test…', ready: 'ready', playing: '▶ playing', played: 'played', failed: 'failed', removed: 'removed' };
 
 function partyTab() {
-  const p = state.party, ps = partySurface(state), pn = state.partyNow;
-  const guestUrl = `http://${guestHost}:${guestPort}/`;
-  const keyIn = h('input', { type: 'password', placeholder: 'sk-ant-…', style: 'flex:1;min-width:0', autocomplete: 'off' });
-  const pinIn = h('input', { type: 'password', inputmode: 'numeric', placeholder: 'new PIN', style: 'width:8em' });
+  const p = state.party, ps = partySurface(state), pn = now && now.itemId ? now : null;
+  const guestUrl = pageUrl('');
   const items = [...partyQueue.items].filter((i) => i.status !== 'removed').reverse();
   return [
-    h('p', { class: 'note' }, 'Guests open the main address (or scan the QR code), type an idea, and Claude turns it into an animation that plays on the party surface. Each plays for the set time, in order; when the line is empty, earlier ones replay.'),
+    h('p', { class: 'note' }, 'Guests open the guest link (or scan the QR code), type an idea, and Claude turns it into an animation that plays on the party surface. Each plays for the set time, in order; when the line is empty, earlier ones replay. The rotation runs while this page or a host-signed-in player is open.'),
     field('Take requests', h('input', { type: 'checkbox', checked: p.enabled, onchange: (e) => { p.enabled = e.target.checked; commit(true); } })),
     field('Plays on', h('select', { value: ps?.id || '', onchange: (e) => { p.surfaceId = e.target.value; commit(true); } },
       state.surfaces.map((s) => h('option', { value: s.id }, s.name)))),
@@ -566,37 +555,25 @@ function partyTab() {
       h('option', { value: 'replay' }, 'Replay guests\' animations'), h('option', { value: 'playlist' }, 'Show my playlist'))),
     h('h3', {}, 'Now'),
     pn && Date.now() < pn.until
-      ? h('div', { class: 'row' }, h('span', { class: 'grow' }, `▶ ${pn.title} · by ${pn.by}`), btn('Skip', () => post('/api/queue/x/skip'), 'small'))
+      ? h('div', { class: 'row' }, h('span', { class: 'grow' }, `▶ ${pn.title} · by ${pn.by}`), btn('Skip', act(queueAction.skip), 'small'))
       : h('p', { class: 'note' }, p.enabled ? 'Showing the normal playlist until a guest animation is ready.' : 'Requests are off.'),
     h('h3', {}, `Queue (${items.length})`),
     items.length ? h('ul', { class: 'list' }, items.map((i) => h('li', { title: i.error || '' },
       h('span', { class: 'grow' }, h('b', {}, i.title || '…'), ' ', h('span', { class: 'muted' }, `“${i.prompt}” · ${i.by}`),
         i.status === 'failed' || i.error ? h('div', { class: 'muted', style: 'color:#ff8a95' }, i.error) : null),
       h('span', { class: 'muted' }, PARTY_STATUS[i.status] || i.status),
-      i.sceneId && i.status !== 'playing' && btn('▶', () => post(`/api/queue/${i.id}/play`), 'small', 'Play now'),
-      i.status === 'failed' && btn('↻', () => post(`/api/queue/${i.id}/retry`), 'small', 'Try again'),
-      btn('✕', () => post(`/api/queue/${i.id}/remove`), 'small danger', 'Remove')))) : h('p', { class: 'note' }, 'No requests yet.'),
+      i.sceneId && i.status !== 'playing' && btn('▶', act(() => queueAction.play(i.id)), 'small', 'Play now'),
+      i.status === 'failed' && btn('↻', act(() => queueAction.retry(i.id)), 'small', 'Try again'),
+      btn('✕', act(() => queueAction.remove(i.id)), 'small danger', 'Remove')))) : h('p', { class: 'note' }, 'No requests yet.'),
     h('h3', {}, 'Guest link'),
-    h('div', { class: 'row' }, h('code', {}, guestUrl), h('a', { class: 'button', href: '/qr', target: '_blank' }, 'QR code / print ↗')),
-    h('p', { class: 'note' }, 'Guests\' phones must be on the same Wi-Fi as this computer (or the Pi). A guest network that isolates devices will not reach it.'),
-    h('h3', {}, 'Claude API'),
-    h('p', { class: 'note' }, `Model ${partyConfig.model}. API key: ${partyConfig.apiKey === 'none' ? 'not set — generation will fail until you add one.' : partyConfig.apiKey === 'environment' ? 'from the ANTHROPIC_API_KEY environment variable.' : 'saved on the server.'} Each animation costs roughly a few cents.`),
-    h('div', { class: 'row' }, keyIn, btn('Save key', async () => {
-      await post('/api/config', { apiKey: keyIn.value });
-      keyIn.value = '';
-      await refreshConfig(); renderPanel();
-    })),
-    h('h3', {}, 'Setup PIN'),
-    h('div', { class: 'row' }, pinIn, btn('Change PIN', async () => {
-      const r = await post('/api/config', { newPin: pinIn.value });
-      const j = await r.json();
-      alert(r.ok ? 'PIN changed.' : j.error);
-    })),
+    h('div', { class: 'row' }, h('code', { style: 'word-break:break-all' }, guestUrl), h('a', { class: 'button', href: pageUrl('qr.html'), target: '_blank' }, 'QR code / print ↗')),
+    h('p', { class: 'note' }, 'Works on any phone and any connection, including mobile data.'),
+    h('p', { class: 'note' }, 'Animations are written by Claude (claude-opus-5-5) in a Firebase Cloud Function, using the API key stored as the function\'s secret. Roughly a few cents each.'),
   ];
 }
 
-async function refreshLayouts() { layoutNames = await (await fetch('/api/layouts')).json(); }
-async function refreshMedia() { mediaFiles = await (await fetch('/api/media')).json(); }
+async function refreshLayouts() { layoutNames = await listLayouts(); }
+async function refreshMedia() { try { mediaFiles = await listMedia(); } catch { mediaFiles = []; } }
 
 function layoutsTab() {
   const name = h('input', { type: 'text', placeholder: 'e.g. Driveway Halloween', style: 'flex:1' });
@@ -605,21 +582,21 @@ function layoutsTab() {
     h('div', { class: 'row' }, name, btn('Save', async () => {
       const n = name.value.trim().replace(/[^A-Za-z0-9 _.()-]/g, '_');
       if (!n) return name.focus();
-      await fetch('/api/layouts/' + encodeURIComponent(n), { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ surfaces: state.surfaces, masks: state.masks, output: state.output }) });
+      await saveLayout(n, { surfaces: state.surfaces, masks: state.masks, output: state.output });
       await refreshLayouts(); renderPanel();
     })),
     layoutNames.length ? h('ul', { class: 'list' }, layoutNames.map((n) => h('li', {},
       h('span', { class: 'grow' }, n),
       btn('Load', async () => {
         if (!confirm(`Replace the current surfaces and masks with "${n}"?`)) return;
-        const l = await (await fetch('/api/layouts/' + encodeURIComponent(n))).json();
+        const l = await loadLayout(n);
         state = normalizeState({ ...state, surfaces: l.surfaces, masks: l.masks, output: l.output || state.output });
         sel = { type: null, id: null, point: null };
         sizeStage(); commit(true);
       }, 'small'),
       btn('✕', async () => {
         if (!confirm(`Delete layout "${n}"?`)) return;
-        await fetch('/api/layouts/' + encodeURIComponent(n), { method: 'DELETE' });
+        await deleteLayout(n);
         await refreshLayouts(); renderPanel();
       }, 'small danger')))) : h('p', { class: 'note' }, 'No saved layouts yet.'),
   ];
@@ -647,19 +624,16 @@ function scheduleTab() {
 // ---------- start ----------
 async function init() {
   await authGate();
-  pinSetupBanner();
-  const ids = await (await fetch('/api/scenes')).json();
+  const ids = BUILTIN_SCENES;
   await Promise.all(ids.map(async (id) => { const e = loadScene(id); await e.promise; if (e.def) scenes.set(id, e.def); }));
   sceneIds = ids.filter((id) => scenes.has(id));
-  await Promise.all([refreshMedia(), refreshLayouts(), refreshConfig(), refreshQueue()]);
-  state = normalizeState(await (await fetch('/api/state')).json());
-  if (state.surfaces[0]) sel = { type: 'surface', id: state.surfaces[0].id, point: null };
-  engine.setState(state);
+  await Promise.all([refreshMedia(), refreshLayouts()]);
+  $('#player-link').href = pageUrl('player.html');
+  $('#guest-link').href = pageUrl('');
+  $('#account').textContent = auth.currentUser.email;
   engine.start();
   setupStage();
-  sizeStage();
-  renderPanel();
-  connectEvents();
+  connectLive(); // the first snapshot fills in state and draws everything
   $('#btn-align').onclick = () => { state.align = !state.align; commit(true); };
   $('#btn-blackout').onclick = () => { state.blackout = !state.blackout; commit(true); };
   setInterval(renderStatus, 15000);
