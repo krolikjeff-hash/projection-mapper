@@ -16,6 +16,33 @@ export function squareToQuad(q) {
   return [x1 - x0 + g * x1, x3 - x0 + h * x3, x0, y1 - y0 + g * y1, y3 - y0 + h * y3, y0, g, h];
 }
 
+// Inverse of a homography from squareToQuad: output point -> (u,v).
+export function invertH(H) {
+  const [a, b, c, d, e, f, g, h] = H;
+  const A = e - f * h, B = c * h - b, C = b * f - c * e;
+  const D = f * g - d, E = a - c * g, F = c * d - a * f;
+  const G = d * h - e * g, Hh = b * g - a * h, I = a * e - b * d;
+  return [A / I, B / I, C / I, D / I, E / I, F / I, G / I, Hh / I];
+}
+
+// Width / height of a surface in output pixels.
+export function surfaceAspect(s, out = { width: 1920, height: 1080 }) {
+  const f = surfaceMap(s);
+  const len = (fn) => {
+    let L = 0, prev = fn(0);
+    for (let i = 1; i <= 8; i++) { const p = fn(i / 8); L += Math.hypot((p[0] - prev[0]) * out.width, (p[1] - prev[1]) * out.height); prev = p; }
+    return L;
+  };
+  const w = (len((t) => f(t, 0)) + len((t) => f(t, 1))) / 2, h = (len((t) => f(0, t)) + len((t) => f(1, t))) / 2;
+  return w / Math.max(h, 1);
+}
+
+// Output point -> surface (u,v) (exact for flat surfaces, corner-based approximation for meshes).
+export function outputToSurface(s, p) {
+  const corners = s.mode === 'mesh' && s.mesh ? meshCorners(s.mesh) : s.corners;
+  return applyH(invertH(squareToQuad(corners)), p[0], p[1]);
+}
+
 export function applyH(H, u, v) {
   const [a, b, c, d, e, f, g, h] = H;
   const w = g * u + h * v + 1;
@@ -51,7 +78,35 @@ export function meshEval(m, u, v) {
 export function meshFromQuad(corners, cols, rows) {
   const H = squareToQuad(corners), points = [];
   for (let j = 0; j <= rows; j++) for (let i = 0; i <= cols; i++) points.push(applyH(H, i / cols, j / rows));
-  return { cols, rows, points };
+  return { cols, rows, points, auto: true };
+}
+
+const isEdge = (m, i, j) => i === 0 || j === 0 || i === m.cols || j === m.rows;
+
+// Re-space the inner pins evenly between the outer ones (a Coons patch over the edge pins).
+export function fillInner(m) {
+  const at = (i, j) => m.points[j * (m.cols + 1) + i];
+  const c00 = at(0, 0), c10 = at(m.cols, 0), c01 = at(0, m.rows), c11 = at(m.cols, m.rows);
+  for (let j = 1; j < m.rows; j++) for (let i = 1; i < m.cols; i++) {
+    const u = i / m.cols, v = j / m.rows, p = [0, 0];
+    for (const k of [0, 1]) {
+      p[k] = (1 - v) * at(i, 0)[k] + v * at(i, m.rows)[k] + (1 - u) * at(0, j)[k] + u * at(m.cols, j)[k]
+        - ((1 - u) * (1 - v) * c00[k] + u * (1 - v) * c10[k] + (1 - u) * v * c01[k] + u * v * c11[k]);
+    }
+    m.points[j * (m.cols + 1) + i] = p;
+  }
+  return m;
+}
+
+export function isEdgePin(m, index) { return isEdge(m, index % (m.cols + 1), Math.floor(index / (m.cols + 1))); }
+
+// New pin count, keeping the outline: edge pins are resampled along the current curved edges.
+export function resampleMesh(m, cols, rows) {
+  const points = [];
+  for (let j = 0; j <= rows; j++) for (let i = 0; i <= cols; i++) {
+    points.push(isEdge({ cols, rows }, i, j) ? meshEval(m, i / cols, j / rows) : [0, 0]);
+  }
+  return fillInner({ cols, rows, points, auto: m.auto });
 }
 
 export function meshCorners(m) {

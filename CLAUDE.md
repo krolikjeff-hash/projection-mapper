@@ -11,13 +11,17 @@ See the project home's START-HERE "Next steps". Deadline: Halloween, Sat 2026-10
 (1920×1080 input over HDMI, no ADB) driven by a Raspberry Pi 5 running the player in Chromium kiosk mode.
 
 ## How to run
-- `node server.js` (port 8080). Control `http://localhost:8080/`, player `/player`.
+- `npm install` once, then `node server.js` (port 8080, https 8443). Guest page `/`, setup `/setup` (PIN), player
+  `/player`, QR sign `/qr`.
 - In the Claude desktop app: the `projection-mapper` entry in the project home's `.claude/launch.json` starts it in the
   browser pane.
 
 ## Working rules
-- No npm packages: Node built-ins on the server, plain ES modules in the browser (the Pi and the projector's Android should
-  run it as is).
+- One npm package only, `@anthropic-ai/sdk` (party generation, `party-server.js`, model `claude-opus-5-5`). Otherwise
+  Node built-ins on the server and plain ES modules in the browser, no build step.
+- Don't spend the user's API money in tests without asking; test the party pipeline with a hand-made `data/scenes/g-*.js`
+  plus a `ready` item in `data/queue.json`, or an invalid test key for the error path. A preview server started from the
+  desktop app may inherit an `ANTHROPIC_API_KEY` that isn't Jeff's choice.
 - WebGL 1 / GLSL ES 1.00 for compatibility.
 - Scene format: `public/scenes/README.md`. Test new scenes in Align off, on a black background, at 1920×1080.
 

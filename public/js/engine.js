@@ -3,6 +3,7 @@
 // surface's corner-pin homography or smooth mesh. Masks then black out polygons (stencil fill, any shape).
 import { surfaceMap } from './geometry.js';
 import { isShowTime } from './sun.js';
+import { partySurface } from './model.js';
 
 const VS_WARP = `attribute vec2 a_pos; attribute vec2 a_uv; varying vec2 v_uv;
 void main(){ v_uv = a_uv; gl_Position = vec4(a_pos, 0.0, 1.0); }`;
@@ -202,6 +203,19 @@ export class Engine {
     return p;
   }
 
+  // Compile a generated shader without using it: { ok, log }.
+  testCompile(fragment, params = []) {
+    try {
+      const prog = this.sceneProgram({ id: 'test-' + Math.random(), params, fragment });
+      this.gl.deleteProgram(prog.p);
+      return { ok: true, log: '' };
+    } catch (e) {
+      return { ok: false, log: String(e.message || e).split('\n#ifdef')[0] };
+    } finally {
+      for (const k of [...this.sceneProgs.keys()]) if (k.startsWith('test-')) this.sceneProgs.delete(k);
+    }
+  }
+
   drawFullscreen() {
     const gl = this.gl;
     gl.bindBuffer(gl.ARRAY_BUFFER, this.quadBuf);
@@ -315,6 +329,14 @@ export class Engine {
       const layers = s.align
         ? [{ idx: 'align', entry: { scene: 'grid', params: { color: ALIGN_COLORS[si % ALIGN_COLORS.length], highlight: s.selected && s.selected.id === surf.id ? 1 : 0 } }, alpha: 1, time: t }]
         : this.layers(surf, nowMs, t);
+      // A guest's animation plays over the party surface, fading in and out over 1.5 s.
+      const pn = s.partyNow, partyOn = s.party && s.party.enabled && pn && pn.sceneId && nowMs < pn.until;
+      if (!s.align && partyOn && surf.id === partySurface(s)?.id) {
+        const fade = Math.min(1, (nowMs - pn.startedAt) / 1500, (pn.until - nowMs) / 1500);
+        // Keep the playlist underneath until the guest scene has loaded (or if it fails to compile).
+        if (fade >= 1 && loadScene(pn.sceneId).def && !this.errors.has(pn.sceneId)) layers.length = 0;
+        layers.push({ idx: 'party:' + pn.itemId, entry: { scene: pn.sceneId, params: {} }, alpha: Math.max(0, fade), time: (nowMs - pn.startedAt) / 1000 });
+      }
       for (const L of layers) {
         const key = surf.id + '|' + L.idx;
         const inst = this.instance(key, L.entry.scene, cw, ch);

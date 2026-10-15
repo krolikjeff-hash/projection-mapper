@@ -28,6 +28,12 @@
   // Live state from the server; EventSource reconnects by itself and the show keeps running meanwhile.
   const es = new EventSource('/api/events');
   es.addEventListener('state', (e) => engine.setState(JSON.parse(e.data).state));
+  // Compile-test guests' generated shaders on the real GPU before they're queued to play.
+  es.addEventListener('compile', (e) => {
+    const { nonce, fragment, params } = JSON.parse(e.data);
+    const r = engine.testCompile(fragment, params);
+    fetch('/api/compile', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ nonce, ...r }) });
+  });
   // Double-click to go full screen when testing on a PC (the Pi runs Chromium in kiosk mode).
   addEventListener('dblclick', () => document.documentElement.requestFullscreen?.().catch(() => {}));
   // Keep the screen awake where the browser supports it.

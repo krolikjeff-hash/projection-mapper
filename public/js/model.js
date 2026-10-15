@@ -29,6 +29,9 @@ export function defaultState() {
     masks: [],
     // Campbell, CA by default; start can follow sunset.
     schedule: { enabled: false, start: { type: 'sunset', offset: -10, time: '18:00' }, end: '22:00', lat: 37.287, lon: -121.95 },
+    // Party mode: guests' generated animations take over one surface in turn (see party-server.js).
+    party: { enabled: false, surfaceId: null, seconds: 45, replay: true },
+    partyNow: null, // { itemId, sceneId, title, by, startedAt, until } while a guest animation plays
   };
 }
 
@@ -48,7 +51,13 @@ export function normalizeState(s) {
   s.output = { ...d.output, ...(s.output || {}) };
   const sc = s.schedule || {};
   s.schedule = { ...d.schedule, ...sc, start: { ...d.schedule.start, ...(sc.start || {}) } };
+  s.party = { ...d.party, ...(s.party || {}) };
   s.surfaces = (Array.isArray(s.surfaces) ? s.surfaces : []).map(normalizeSurface);
   s.masks = (Array.isArray(s.masks) ? s.masks : []).filter((m) => Array.isArray(m.points) && m.points.length >= 3);
   return s;
+}
+
+// The surface guests' animations play on: the chosen one, else the first enabled one.
+export function partySurface(s) {
+  return s.surfaces.find((x) => x.id === s.party.surfaceId) || s.surfaces.find((x) => x.enabled) || s.surfaces[0] || null;
 }

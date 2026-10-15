@@ -1,0 +1,51 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Scan to Haunt the Driveway</title>
+<style>
+  body { margin: 0; font-family: system-ui, sans-serif; text-align: center; background: #fff; color: #111; }
+  .sheet { max-width: 640px; margin: 0 auto; padding: 40px 24px; }
+  h1 { font-size: 44px; margin: 0 0 8px; }
+  p { font-size: 20px; margin: 0 0 24px; }
+  #qr svg { width: min(420px, 90vw); height: auto; }
+  .url { font: 18px ui-monospace, monospace; margin-top: 16px; word-break: break-all; }
+  .wifi { margin-top: 18px; font-size: 18px; }
+  .tools { margin: 20px; } .tools input { font: inherit; padding: 6px; width: 260px; }
+  @media print { .tools { display: none; } }
+</style>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/qrcode-generator/1.4.4/qrcode.min.js"></script>
+</head>
+<body>
+<div class="sheet">
+  <h1>🎃 Haunt the Driveway</h1>
+  <p>Scan, describe any spooky animation, and watch it appear on the driveway.</p>
+  <div id="qr"></div>
+  <div class="url" id="url"></div>
+  <div class="wifi" id="wifi"></div>
+</div>
+<div class="tools">
+  <label>Wi-Fi line: <input id="wifiIn" placeholder="Wi-Fi: Network name / password"></label>
+  <button id="printBtn">Print</button>
+</div>
+<script type="module">
+  // Guests get the plain http address on the home network: phones open it from a QR code without a certificate
+  // warning. Prefers a 192.168.x address, since "localhost" means nothing to a phone.
+  const info = await (await fetch('/api/auth')).json();
+  const lan = info.lan.find((ip) => ip.startsWith('192.168.')) || info.lan[0];
+  const host = /^(localhost|127\.)/.test(location.hostname) && lan ? lan : location.hostname;
+  const url = new URLSearchParams(location.search).get('url') || `http://${host}:${info.port}/`;
+  const q = qrcode(0, 'M');
+  q.addData(url);
+  q.make();
+  document.getElementById('qr').innerHTML = q.createSvgTag({ scalable: true, margin: 2 });
+  document.getElementById('url').textContent = url;
+  const wifiIn = document.getElementById('wifiIn'), wifi = document.getElementById('wifi');
+  wifiIn.value = localStorage.getItem('pm_wifi') || '';
+  const upd = () => { wifi.textContent = wifiIn.value; localStorage.setItem('pm_wifi', wifiIn.value); };
+  wifiIn.oninput = upd; upd();
+  document.getElementById('printBtn').onclick = () => print();
+</script>
+</body>
+</html>

@@ -1,0 +1,47 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#0d0a14">
+<title>Haunted Driveway</title>
+<link rel="stylesheet" href="css/party.css">
+</head>
+<body>
+<header>
+  <h1>Haunted Driveway</h1>
+  <p class="tag">Dream up an animation and watch it appear on the driveway.</p>
+</header>
+
+<section class="live">
+  <div id="view"><canvas id="gl"></canvas><span class="badge">● LIVE</span></div>
+  <div id="now" class="now"></div>
+</section>
+
+<section class="card" id="ask">
+  <form id="form">
+    <label for="prompt">What should we conjure?</label>
+    <textarea id="prompt" maxlength="300" rows="3" placeholder="e.g. a swarm of bats bursting out of a glowing portal"></textarea>
+    <div id="ideas" class="ideas"></div>
+    <div class="row">
+      <input id="by" type="text" maxlength="24" placeholder="Your name (optional)" autocomplete="nickname">
+      <button id="send" type="submit">Cast it ✨</button>
+    </div>
+    <p id="msg" class="msg"></p>
+  </form>
+</section>
+
+<section class="card" id="mine-card" hidden>
+  <h2>Your spells</h2>
+  <ul id="mine" class="list"></ul>
+</section>
+
+<section class="card">
+  <h2>Coming up</h2>
+  <ul id="queue" class="list"></ul>
+</section>
+
+<footer>Animations are made by Claude, an AI, from your words. Keep it spooky and family-friendly.</footer>
+<script type="module" src="js/party.js"></script>
+</body>
+</html>

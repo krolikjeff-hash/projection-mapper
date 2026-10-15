@@ -1,8 +1,9 @@
-// Projection mapper server: serves the player (/player) and the control page (/), keeps the show state,
-// and pushes every change to all open pages over Server-Sent Events. Node built-ins only, no packages.
-// Home Wi-Fi only: there is no login, so never expose this port to the internet.
+// Projection mapper server: serves the guest page (/), the PIN-locked setup page (/setup) and the player
+// (/player), keeps the show state, runs the party prompt queue, and pushes every change to all open pages over
+// Server-Sent Events. Home network only: never expose these ports to the internet.
 import http from 'node:http';
 import https from 'node:https';
+import crypto from 'node:crypto';
 import { execFileSync } from 'node:child_process';
 import fs from 'node:fs';
 import fsp from 'node:fs/promises';
@@ -10,6 +11,7 @@ import path from 'node:path';
 import os from 'node:os';
 import { fileURLToPath } from 'node:url';
 import { defaultState, normalizeState } from './public/js/model.js';
+import { createParty } from './party-server.js';
 
 const ROOT = path.dirname(fileURLToPath(import.meta.url));
 const PUB = path.join(ROOT, 'public');
@@ -37,11 +39,48 @@ function saveSoon() {
 }
 
 const clients = new Set();
-function broadcast(origin) {
-  const msg = `event: state\ndata: ${JSON.stringify({ state, origin })}\n\n`;
+function broadcastEvent(name, data) {
+  const msg = `event: ${name}\ndata: ${JSON.stringify(data)}\n\n`;
   for (const c of clients) c.write(msg);
 }
+const broadcast = (origin) => broadcastEvent('state', { state, origin });
 setInterval(() => { for (const c of clients) c.write(': ping\n\n'); }, 20000);
+
+// Server-side state change (party playback): bump the version, save, push to everyone.
+function updateState(fn) {
+  fn(state);
+  state.version = (state.version | 0) + 1;
+  saveSoon();
+  broadcast(null);
+}
+
+// Settings that never go to the browser: the setup PIN, login tokens and the Claude API key.
+const CONFIG_FILE = path.join(DATA, 'config.json');
+let configData = {};
+try { configData = JSON.parse(fs.readFileSync(CONFIG_FILE, 'utf8')); } catch { configData = {}; }
+const config = {
+  get: () => configData,
+  set(patch) { configData = { ...configData, ...patch }; fs.writeFileSync(CONFIG_FILE, JSON.stringify(configData, null, 1)); },
+};
+const pinSet = () => !!(process.env.PM_PIN || configData.pin);
+const hashPin = (pin) => crypto.createHash('sha256').update('pm:' + pin).digest('hex');
+function pinMatches(pin) {
+  if (process.env.PM_PIN) return String(pin) === process.env.PM_PIN;
+  return configData.pin && hashPin(String(pin)) === configData.pin;
+}
+function isHost(req) {
+  if (!pinSet()) return true; // first run: open until a PIN is chosen
+  const m = /(?:^|;\s*)pm_auth=([a-f0-9]{48})/.exec(req.headers.cookie || '');
+  return !!(m && (configData.tokens || []).includes(m[1]));
+}
+function issueToken(res) {
+  const token = crypto.randomBytes(24).toString('hex');
+  config.set({ tokens: [...(configData.tokens || []), token].slice(-20) });
+  res.setHeader('Set-Cookie', `pm_auth=${token}; Path=/; HttpOnly; SameSite=Lax; Max-Age=31536000`);
+}
+const guestId = (req) => (req.socket.remoteAddress || '') + '|' + ((/(?:^|;\s*)pm_guest=([a-z0-9]{6,20})/.exec(req.headers.cookie || '') || [])[1] || '');
+
+const party = createParty({ DATA, USER_SCENES, config, getState: () => state, updateState, broadcastEvent });
 
 const MIME = {
   '.html': 'text/html; charset=utf-8', '.js': 'text/javascript; charset=utf-8', '.css': 'text/css; charset=utf-8',
@@ -96,16 +135,71 @@ async function listFiles(dir, ext) {
 }
 
 async function handleApi(req, res, parts) {
-  const [, , what, name] = parts; // ['', 'api', what, name]
+  const [, , what, name, action] = parts; // ['', 'api', what, name, action]
   const m = req.method;
+  const readJson = async (limit = 2e6) => JSON.parse((await readBody(req, limit)).toString('utf8') || '{}');
+
+  // ---- open to everyone: login, guest prompts, compile results ----
+  if (what === 'auth') {
+    if (m === 'GET') return json(res, 200, { host: isHost(req), pinSet: pinSet(), lan: ips, port: PORT });
+    if (m === 'POST') {
+      const { pin, newPin } = await readJson(4096);
+      if (!pinSet()) {
+        if (!/^\d{4,8}$/.test(String(newPin || ''))) return json(res, 400, { error: 'Choose a PIN of 4 to 8 digits.' });
+        config.set({ pin: hashPin(String(newPin)) });
+        issueToken(res);
+        return json(res, 200, { ok: true });
+      }
+      if (!pinMatches(pin)) { await new Promise((r) => setTimeout(r, 800)); return json(res, 403, { error: 'Wrong PIN' }); }
+      issueToken(res);
+      return json(res, 200, { ok: true });
+    }
+  }
+
+  if (what === 'queue' && !name) {
+    if (m === 'GET') return json(res, 200, isHost(req) && /admin/.test(req.url) ? party.adminView() : party.publicView());
+    if (m === 'POST') {
+      const body = await readJson(8192);
+      const r = party.submit(body, guestId(req));
+      return json(res, r.error ? 400 : 200, r);
+    }
+  }
+  if (what === 'compile' && m === 'POST') { party.compileResult(await readJson(64e3)); return json(res, 200, { ok: true }); }
+
+  // ---- everything else that changes something is for the host only ----
+  if (m !== 'GET' && !isHost(req)) return json(res, 401, { error: 'Setup PIN required' });
+
+  if (what === 'queue' && name && m === 'POST') {
+    const r = party.admin(action, name);
+    return json(res, r.error ? 400 : 200, r);
+  }
+
+  if (what === 'config') {
+    if (!isHost(req)) return json(res, 401, { error: 'Setup PIN required' });
+    if (m === 'GET') {
+      return json(res, 200, { apiKey: configData.apiKey ? 'saved' : process.env.ANTHROPIC_API_KEY ? 'environment' : 'none', model: party.model });
+    }
+    if (m === 'POST') {
+      const body = await readJson(8192);
+      if (typeof body.apiKey === 'string') config.set({ apiKey: body.apiKey.trim() || undefined });
+      if (body.newPin !== undefined) {
+        if (!/^\d{4,8}$/.test(String(body.newPin))) return json(res, 400, { error: 'Choose a PIN of 4 to 8 digits.' });
+        config.set({ pin: hashPin(String(body.newPin)), tokens: [] });
+        issueToken(res);
+      }
+      return json(res, 200, { ok: true });
+    }
+  }
 
   if (what === 'state') {
     if (m === 'GET') return json(res, 200, state);
     if (m === 'PUT') {
-      const body = JSON.parse((await readBody(req, 2e6)).toString('utf8'));
+      const body = await readJson();
       if (!body || !body.state || !Array.isArray(body.state.surfaces)) return json(res, 400, { error: 'Expected { state, origin }' });
       const version = (state.version | 0) + 1;
+      const partyNow = state.partyNow; // owned by the server's party playback
       state = normalizeState(body.state);
+      state.partyNow = partyNow;
       state.version = version;
       saveSoon();
       broadcast(body.origin || null);
@@ -116,6 +210,7 @@ async function handleApi(req, res, parts) {
   if (what === 'events' && m === 'GET') {
     res.writeHead(200, { 'Content-Type': 'text/event-stream', 'Cache-Control': 'no-cache', Connection: 'keep-alive' });
     res.write(`retry: 2000\nevent: state\ndata: ${JSON.stringify({ state, origin: null })}\n\n`);
+    res.write(`event: queue\ndata: ${JSON.stringify(party.publicView())}\n\n`);
     clients.add(res);
     req.on('close', () => clients.delete(res));
     return;
@@ -123,7 +218,10 @@ async function handleApi(req, res, parts) {
 
   if (what === 'scenes') {
     if (m === 'GET' && !name) {
-      const ids = new Set([...(await listFiles(BUILTIN_SCENES, '.js')), ...(await listFiles(USER_SCENES, '.js'))].map((f) => f.slice(0, -3)));
+      // Guests' generated scenes (g-*) are left out unless ?all=1.
+      const all = /all=1/.test(req.url);
+      const ids = new Set([...(await listFiles(BUILTIN_SCENES, '.js')), ...(await listFiles(USER_SCENES, '.js'))]
+        .map((f) => f.slice(0, -3)).filter((id) => all || !id.startsWith('g-')));
       return json(res, 200, [...ids].sort());
     }
     if (m === 'PUT' && name && SCENE_ID.test(name)) {
@@ -173,7 +271,13 @@ async function handler(req, res) {
     const p = url.pathname;
     if (p.startsWith('/api/')) return await handleApi(req, res, p.split('/'));
     if (req.method !== 'GET' && req.method !== 'HEAD') { res.writeHead(405); return res.end(); }
-    if (p === '/' || p === '/control') return sendFile(req, res, path.join(PUB, 'control.html'));
+    if (p === '/') {
+      // Give each guest's browser an id, so the per-guest queue limit works behind one Wi-Fi address.
+      if (!/(?:^|;\s*)pm_guest=/.test(req.headers.cookie || '')) res.setHeader('Set-Cookie', `pm_guest=${crypto.randomBytes(8).toString('hex')}; Path=/; SameSite=Lax; Max-Age=31536000`);
+      return sendFile(req, res, path.join(PUB, 'party.html'));
+    }
+    if (p === '/setup' || p === '/control') return sendFile(req, res, path.join(PUB, 'control.html'));
+    if (p === '/qr') return sendFile(req, res, path.join(PUB, 'qr.html'));
     if (p === '/player') return sendFile(req, res, path.join(PUB, 'player.html'));
     if (p.startsWith('/scenes/')) {
       const rel = p.slice('/scenes/'.length);

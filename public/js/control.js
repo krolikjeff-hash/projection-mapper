@@ -1,8 +1,8 @@
 // Control page: live preview with drag handles for surfaces and masks, plus the settings panel.
 // Every change is pushed to the server, which forwards it to the player(s) at once.
 import { Engine, loadScene } from './engine.js';
-import { uid, newSurface, newMask, normalizeState } from './model.js';
-import { meshFromQuad, meshCorners, surfaceOutline, pointInPolygon, centroid } from './geometry.js';
+import { uid, newSurface, newMask, normalizeState, partySurface } from './model.js';
+import { meshFromQuad, meshCorners, surfaceOutline, pointInPolygon, centroid, fillInner, isEdgePin, resampleMesh } from './geometry.js';
 import { showWindow, isShowTime } from './sun.js';
 
 const $ = (s) => document.querySelector(s);
@@ -77,6 +77,53 @@ function connectEvents() {
     renderHeader();
     if (!editing) renderPanel();
   });
+  es.addEventListener('queue', () => refreshQueue());
+  // Compile-test guests' shaders here too, in case no player is open.
+  es.addEventListener('compile', (e) => {
+    const { nonce, fragment, params } = JSON.parse(e.data);
+    post('/api/compile', { nonce, ...engine.testCompile(fragment, params) });
+  });
+}
+
+// PIN screen: create one on first run, otherwise log in. The server remembers this browser afterwards.
+async function authGate() {
+  const a = await (await fetch('/api/auth')).json();
+  const lan = a.lan.find((ip) => ip.startsWith('192.168.')) || a.lan[0];
+  if (lan && /^(localhost|127\.)/.test(location.hostname)) guestHost = lan;
+  guestPort = a.port;
+  if (a.host && a.pinSet) return;
+  if (a.host && !a.pinSet) {
+    // First run: open, but nudge the host to choose a PIN before sharing the guest link.
+    return;
+  }
+  await new Promise((resolve) => {
+    const pin = h('input', { type: 'password', inputmode: 'numeric', placeholder: 'PIN', autofocus: true, style: 'font-size:20px;width:10em;text-align:center' });
+    const msg = h('p', { class: 'note' });
+    const box = h('div', { style: 'position:fixed;inset:0;background:#121218;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:12px;z-index:9' },
+      h('h1', { style: 'color:#ff8a1f;margin:0' }, 'Projection Mapper setup'),
+      h('p', { class: 'note' }, 'Enter the setup PIN.'),
+      h('form', { onsubmit: async (e) => {
+        e.preventDefault();
+        const r = await post('/api/auth', { pin: pin.value });
+        if (r.ok) { box.remove(); resolve(); } else { msg.textContent = (await r.json()).error; pin.value = ''; pin.focus(); }
+      } }, pin, ' ', h('button', { type: 'submit' }, 'Unlock')),
+      msg, h('a', { href: '/', style: 'color:#8a8aa0' }, 'Go to the guest page'));
+    document.body.append(box);
+    pin.focus();
+  });
+}
+
+async function pinSetupBanner() {
+  const a = await (await fetch('/api/auth')).json();
+  if (a.pinSet) return;
+  const pin = h('input', { type: 'password', inputmode: 'numeric', placeholder: '4–8 digits', style: 'width:8em' });
+  const bar = h('div', { style: 'background:#3a2410;padding:8px 12px;display:flex;gap:8px;align-items:center;flex-wrap:wrap' },
+    h('b', {}, 'Choose a setup PIN'), h('span', { class: 'muted' }, 'so guests can\'t change the setup:'), pin,
+    btn('Set PIN', async () => {
+      const r = await post('/api/auth', { newPin: pin.value });
+      if (r.ok) bar.remove(); else alert((await r.json()).error);
+    }));
+  document.body.prepend(bar);
 }
 
 // ---------- selection and editing ----------
@@ -110,7 +157,11 @@ function applyDrag(d) {
   } else {
     const i = drag.point;
     if (drag.type === 'mask') it.points[i] = add(o.points[i]);
-    else if (it.mode === 'mesh') { it.mesh.points[i] = add(o.mesh.points[i]); it.corners = meshCorners(it.mesh); }
+    else if (it.mode === 'mesh') {
+      it.mesh.points[i] = add(o.mesh.points[i]);
+      if (it.mesh.auto !== false) fillInner(it.mesh);
+      it.corners = meshCorners(it.mesh);
+    }
     else it.corners[i] = add(o.corners[i]);
   }
 }
@@ -146,8 +197,11 @@ function pxDist(a, b) {
   return Math.hypot((a[0] - b[0]) * r.width, (a[1] - b[1]) * r.height);
 }
 
+// With auto-spaced inner pins, only the outer pins of a curved surface can be dragged.
+const pinEditable = (s, i) => !(s.mode === 'mesh' && s.mesh.auto !== false) || isEdgePin(s.mesh, i);
+
 function handlesOf(type, it) {
-  const pts = itemPoints(type, it).map((p, i) => ({ point: i, at: p }));
+  const pts = itemPoints(type, it).map((p, i) => ({ point: i, at: p })).filter((h) => type === 'mask' || pinEditable(it, h.point));
   const c = centroid(type === 'mask' ? it.points : surfaceOutline(it));
   return [...pts, { point: 'move', at: c }];
 }
@@ -261,7 +315,11 @@ function drawOverlay() {
       c2.lineWidth = 1 * dpr; c2.strokeStyle = 'rgba(255,212,0,0.45)';
       for (let j = 0; j <= rows; j++) { poly(Array.from({ length: cols + 1 }, (_, i) => at(i, j)), false); c2.stroke(); }
       for (let i = 0; i <= cols; i++) { poly(Array.from({ length: rows + 1 }, (_, j) => at(i, j)), false); c2.stroke(); }
-      points.forEach((p, i) => handle(p, sel.point === i));
+      points.forEach((p, i) => {
+        if (pinEditable(s, i)) return handle(p, sel.point === i);
+        const [x, y] = P(p);
+        c2.beginPath(); c2.arc(x, y, 3 * dpr, 0, Math.PI * 2); c2.fillStyle = 'rgba(255,212,0,0.6)'; c2.fill();
+      });
     } else {
       s.corners.forEach((p, i) => handle(p, sel.point === i, String(i + 1)));
     }
@@ -307,7 +365,7 @@ function renderStatus() {
 }
 
 // ---------- panel ----------
-const TABS = [['surfaces', 'Surfaces'], ['masks', 'Masks'], ['show', 'Show'], ['layouts', 'Layouts'], ['schedule', 'Schedule']];
+const TABS = [['surfaces', 'Surfaces'], ['masks', 'Masks'], ['show', 'Show'], ['party', 'Party'], ['layouts', 'Layouts'], ['schedule', 'Schedule']];
 
 function renderPanel() {
   const nav = $('#tabs');
@@ -316,7 +374,7 @@ function renderPanel() {
   const body = $('#tab-body');
   const scroll = body.scrollTop;
   body.textContent = '';
-  const content = { surfaces: surfacesTab, masks: masksTab, show: showTab, layouts: layoutsTab, schedule: scheduleTab }[tab]();
+  const content = { surfaces: surfacesTab, masks: masksTab, show: showTab, party: partyTab, layouts: layoutsTab, schedule: scheduleTab }[tab]();
   body.append(...[content].flat(Infinity).filter(Boolean));
   body.scrollTop = scroll;
   renderHeader();
@@ -368,10 +426,14 @@ function surfaceEditor(s) {
       },
     }, h('option', { value: 'quad' }, 'Flat: 4 corner pins'), h('option', { value: 'mesh' }, 'Curved: grid of pins'))),
     s.mode === 'mesh' && field('Pins',
-      h('input', { type: 'number', min: 1, max: 12, value: s.mesh.cols, style: 'width:4.5em', onchange: (e) => { s.mesh = meshFromQuad(meshCorners(s.mesh), Math.max(1, Math.min(12, +e.target.value || 1)), s.mesh.rows); commit(true); } }),
+      h('input', { type: 'number', min: 1, max: 12, value: s.mesh.cols, style: 'width:4.5em', onchange: (e) => { s.mesh = resampleMesh(s.mesh, Math.max(1, Math.min(12, +e.target.value || 1)), s.mesh.rows); sel.point = null; commit(true); } }),
       '×',
-      h('input', { type: 'number', min: 1, max: 12, value: s.mesh.rows, style: 'width:4.5em', onchange: (e) => { s.mesh = meshFromQuad(meshCorners(s.mesh), s.mesh.cols, Math.max(1, Math.min(12, +e.target.value || 1))); commit(true); } }),
-      btn('Flatten', () => { s.mesh = meshFromQuad(meshCorners(s.mesh), s.mesh.cols, s.mesh.rows); commit(true); }, 'small', 'Reset the inner pins to a flat grid between the corners')),
+      h('input', { type: 'number', min: 1, max: 12, value: s.mesh.rows, style: 'width:4.5em', onchange: (e) => { s.mesh = resampleMesh(s.mesh, s.mesh.cols, Math.max(1, Math.min(12, +e.target.value || 1))); sel.point = null; commit(true); } }),
+      btn('Flatten', () => { s.mesh = meshFromQuad(meshCorners(s.mesh), s.mesh.cols, s.mesh.rows); commit(true); }, 'small', 'Straighten all the edges again between the 4 corners')),
+    s.mode === 'mesh' && field('Inner pins',
+      h('label', { style: 'display:flex;gap:6px;align-items:center' },
+        h('input', { type: 'checkbox', checked: s.mesh.auto !== false, onchange: (e) => { s.mesh.auto = e.target.checked; if (s.mesh.auto) fillInner(s.mesh); sel.point = null; commit(true); } }),
+        'Space evenly (drag only the outside pins)')),
     rangeField('Opacity', 0, 1, 0.01, s.opacity, (v) => { s.opacity = v; commit(); }),
     rangeField('Crossfade (s)', 0, 10, 0.5, s.crossfade, (v) => { s.crossfade = v; commit(); }),
     h('h3', {}, 'Playlist'),
@@ -476,6 +538,63 @@ function showTab() {
   ];
 }
 
+// ---------- party ----------
+let partyQueue = { items: [] }, partyConfig = { apiKey: 'none', model: '' };
+let guestHost = location.hostname, guestPort = 8080;
+async function refreshQueue() {
+  partyQueue = await (await fetch('/api/queue?admin=1')).json();
+  if (tab === 'party' && !(document.activeElement && /INPUT|SELECT|TEXTAREA/.test(document.activeElement.tagName))) renderPanel();
+}
+async function refreshConfig() { partyConfig = await (await fetch('/api/config')).json(); }
+const post = (url, body) => fetch(url, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body || {}) });
+
+const PARTY_STATUS = { queued: 'waiting', generating: 'Claude is writing it…', testing: 'compile test…', ready: 'ready', playing: '▶ playing', played: 'played', failed: 'failed', removed: 'removed' };
+
+function partyTab() {
+  const p = state.party, ps = partySurface(state), pn = state.partyNow;
+  const guestUrl = `http://${guestHost}:${guestPort}/`;
+  const keyIn = h('input', { type: 'password', placeholder: 'sk-ant-…', style: 'flex:1;min-width:0', autocomplete: 'off' });
+  const pinIn = h('input', { type: 'password', inputmode: 'numeric', placeholder: 'new PIN', style: 'width:8em' });
+  const items = [...partyQueue.items].filter((i) => i.status !== 'removed').reverse();
+  return [
+    h('p', { class: 'note' }, 'Guests open the main address (or scan the QR code), type an idea, and Claude turns it into an animation that plays on the party surface. Each plays for the set time, in order; when the line is empty, earlier ones replay.'),
+    field('Take requests', h('input', { type: 'checkbox', checked: p.enabled, onchange: (e) => { p.enabled = e.target.checked; commit(true); } })),
+    field('Plays on', h('select', { value: ps?.id || '', onchange: (e) => { p.surfaceId = e.target.value; commit(true); } },
+      state.surfaces.map((s) => h('option', { value: s.id }, s.name)))),
+    rangeField('Seconds each', 15, 180, 5, p.seconds, (v) => { p.seconds = v; commit(); }),
+    field('When line is empty', h('select', { value: p.replay ? 'replay' : 'playlist', onchange: (e) => { p.replay = e.target.value === 'replay'; commit(true); } },
+      h('option', { value: 'replay' }, 'Replay guests\' animations'), h('option', { value: 'playlist' }, 'Show my playlist'))),
+    h('h3', {}, 'Now'),
+    pn && Date.now() < pn.until
+      ? h('div', { class: 'row' }, h('span', { class: 'grow' }, `▶ ${pn.title} · by ${pn.by}`), btn('Skip', () => post('/api/queue/x/skip'), 'small'))
+      : h('p', { class: 'note' }, p.enabled ? 'Showing the normal playlist until a guest animation is ready.' : 'Requests are off.'),
+    h('h3', {}, `Queue (${items.length})`),
+    items.length ? h('ul', { class: 'list' }, items.map((i) => h('li', { title: i.error || '' },
+      h('span', { class: 'grow' }, h('b', {}, i.title || '…'), ' ', h('span', { class: 'muted' }, `“${i.prompt}” · ${i.by}`),
+        i.status === 'failed' || i.error ? h('div', { class: 'muted', style: 'color:#ff8a95' }, i.error) : null),
+      h('span', { class: 'muted' }, PARTY_STATUS[i.status] || i.status),
+      i.sceneId && i.status !== 'playing' && btn('▶', () => post(`/api/queue/${i.id}/play`), 'small', 'Play now'),
+      i.status === 'failed' && btn('↻', () => post(`/api/queue/${i.id}/retry`), 'small', 'Try again'),
+      btn('✕', () => post(`/api/queue/${i.id}/remove`), 'small danger', 'Remove')))) : h('p', { class: 'note' }, 'No requests yet.'),
+    h('h3', {}, 'Guest link'),
+    h('div', { class: 'row' }, h('code', {}, guestUrl), h('a', { class: 'button', href: '/qr', target: '_blank' }, 'QR code / print ↗')),
+    h('p', { class: 'note' }, 'Guests\' phones must be on the same Wi-Fi as this computer (or the Pi). A guest network that isolates devices will not reach it.'),
+    h('h3', {}, 'Claude API'),
+    h('p', { class: 'note' }, `Model ${partyConfig.model}. API key: ${partyConfig.apiKey === 'none' ? 'not set — generation will fail until you add one.' : partyConfig.apiKey === 'environment' ? 'from the ANTHROPIC_API_KEY environment variable.' : 'saved on the server.'} Each animation costs roughly a few cents.`),
+    h('div', { class: 'row' }, keyIn, btn('Save key', async () => {
+      await post('/api/config', { apiKey: keyIn.value });
+      keyIn.value = '';
+      await refreshConfig(); renderPanel();
+    })),
+    h('h3', {}, 'Setup PIN'),
+    h('div', { class: 'row' }, pinIn, btn('Change PIN', async () => {
+      const r = await post('/api/config', { newPin: pinIn.value });
+      const j = await r.json();
+      alert(r.ok ? 'PIN changed.' : j.error);
+    })),
+  ];
+}
+
 async function refreshLayouts() { layoutNames = await (await fetch('/api/layouts')).json(); }
 async function refreshMedia() { mediaFiles = await (await fetch('/api/media')).json(); }
 
@@ -527,10 +646,12 @@ function scheduleTab() {
 
 // ---------- start ----------
 async function init() {
+  await authGate();
+  pinSetupBanner();
   const ids = await (await fetch('/api/scenes')).json();
   await Promise.all(ids.map(async (id) => { const e = loadScene(id); await e.promise; if (e.def) scenes.set(id, e.def); }));
   sceneIds = ids.filter((id) => scenes.has(id));
-  await Promise.all([refreshMedia(), refreshLayouts()]);
+  await Promise.all([refreshMedia(), refreshLayouts(), refreshConfig(), refreshQueue()]);
   state = normalizeState(await (await fetch('/api/state')).json());
   if (state.surfaces[0]) sel = { type: 'surface', id: state.surfaces[0].id, point: null };
   engine.setState(state);
