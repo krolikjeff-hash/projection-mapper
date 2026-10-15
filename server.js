@@ -2,6 +2,8 @@
 // and pushes every change to all open pages over Server-Sent Events. Node built-ins only, no packages.
 // Home Wi-Fi only: there is no login, so never expose this port to the internet.
 import http from 'node:http';
+import https from 'node:https';
+import { execFileSync } from 'node:child_process';
 import fs from 'node:fs';
 import fsp from 'node:fs/promises';
 import path from 'node:path';
@@ -18,6 +20,7 @@ const LAYOUTS = path.join(DATA, 'layouts');
 const USER_SCENES = path.join(DATA, 'scenes');
 const STATE_FILE = path.join(DATA, 'state.json');
 const PORT = +process.env.PORT || 8080;
+const HTTPS_PORT = +process.env.HTTPS_PORT || 8443;
 for (const d of [DATA, MEDIA, LAYOUTS, USER_SCENES]) fs.mkdirSync(d, { recursive: true });
 
 let state;
@@ -164,7 +167,7 @@ async function handleApi(req, res, parts) {
   json(res, 404, { error: 'Unknown API route' });
 }
 
-const server = http.createServer(async (req, res) => {
+async function handler(req, res) {
   try {
     const url = new URL(req.url, 'http://x');
     const p = url.pathname;
@@ -189,10 +192,40 @@ const server = http.createServer(async (req, res) => {
     console.error(e);
     if (!res.headersSent) json(res, 500, { error: String(e.message || e) });
   }
-});
+}
 
-server.listen(PORT, '0.0.0.0', () => {
-  const ips = Object.values(os.networkInterfaces()).flat().filter((i) => i && i.family === 'IPv4' && !i.internal).map((i) => i.address);
+const ips = Object.values(os.networkInterfaces()).flat().filter((i) => i && i.family === 'IPv4' && !i.internal).map((i) => i.address);
+
+// Self-signed certificate for the https address, for phones that refuse plain http. Made once with openssl
+// (on PATH, or the copy that comes with Git for Windows); browsers warn once and then allow it.
+function ensureCert() {
+  const key = path.join(DATA, 'key.pem'), cert = path.join(DATA, 'cert.pem');
+  if (!fs.existsSync(key) || !fs.existsSync(cert)) {
+    const host = os.hostname();
+    const san = ['DNS:localhost', `DNS:${host}`, `DNS:${host}.local`, 'IP:127.0.0.1', ...ips.map((ip) => 'IP:' + ip)].join(',');
+    const candidates = ['openssl', 'C:\\Program Files\\Git\\usr\\bin\\openssl.exe', 'C:\\Program Files\\Git\\mingw64\\bin\\openssl.exe'];
+    let made = false;
+    for (const exe of candidates) {
+      try {
+        execFileSync(exe, ['req', '-x509', '-newkey', 'rsa:2048', '-nodes', '-days', '3650', '-keyout', key, '-out', cert,
+          '-subj', '/CN=Projection Mapper', '-addext', `subjectAltName=${san}`], { stdio: 'ignore' });
+        made = true;
+        break;
+      } catch { /* try the next one */ }
+    }
+    if (!made) return null;
+  }
+  return { key: fs.readFileSync(key), cert: fs.readFileSync(cert) };
+}
+
+http.createServer(handler).listen(PORT, '0.0.0.0', () => {
   console.log(`Projection mapper on port ${PORT}`);
   for (const ip of ['localhost', ...ips]) console.log(`  control: http://${ip}:${PORT}/   player: http://${ip}:${PORT}/player`);
 });
+
+const tls = ensureCert();
+if (tls) {
+  https.createServer(tls, handler).listen(HTTPS_PORT, '0.0.0.0', () => {
+    for (const ip of ips) console.log(`  secure: https://${ip}:${HTTPS_PORT}/  (self-signed: accept the warning once)`);
+  });
+} else console.log('  (no openssl found, so no https address)');

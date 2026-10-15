@@ -15,7 +15,10 @@ Every change on the control page reaches every open player at once (Server-Sent 
 node server.js            # PORT=8080 by default; PM_DATA=<folder> moves the data folder
 ```
 
-Then open `http://<host>:8080/` to control it and `http://<host>:8080/player` on the projector machine. Double-click
+It also serves **https on port 8443** with a self-signed certificate it makes once with openssl (`data/cert.pem`), for
+phones that refuse plain http: accept the browser warning once. Delete `data/*.pem` to remake it after the PC's IP changes.
+
+Then open `http://<host>:8080/` (or `https://<host>:8443/`) to control it and `http://<host>:8080/player` on the projector machine. Double-click
 the player to go full screen on a PC.
 
 ## Concepts
