@@ -177,7 +177,10 @@ export const generateAnimation = onDocumentWritten(
     let state;
     try { state = normalizeState(JSON.parse(showSnap.data()?.stateJson || 'null')); } catch { state = normalizeState(null); }
 
-    const client = new Anthropic({ apiKey: ANTHROPIC_API_KEY.value() });
+    // Legacy workspace keys (sk-ant-api…) go in x-api-key; identity-linked personal/service-account keys
+    // (e.g. sk-ant-usr…) go in Authorization: Bearer.
+    const key = ANTHROPIC_API_KEY.value().trim();
+    const client = new Anthropic(key.startsWith('sk-ant-api') ? { apiKey: key } : { apiKey: null, authToken: key });
     const messages = [{
       role: 'user',
       content: `${surfaceContext(state)}\n\nThe guest (${clean(after.by, 24)}) asked for:\n<request>${clean(after.prompt, 300)}</request>\n\nCreate the animation.`,
