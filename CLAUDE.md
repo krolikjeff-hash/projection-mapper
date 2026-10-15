@@ -1,30 +1,30 @@
 # Projection Mapper — project instructions for Claude
 
 ## Where things live
-- Code: this repo, `C:\Users\kroli\source\projection-mapper` (git; no GitHub remote yet; ask Jeff before creating one).
-- Project home (spec, decisions, projector notes, photos): `%OneDriveConsumer%\Claude\Home Projects\Projection Mapping\`
+- Code: this repo, `C:\Users\kroli\source\projection-mapper`, GitHub `krolikjeff-hash/projection-mapper` (public;
+  GitHub Pages serves the repo root at https://krolikjeff-hash.github.io/projection-mapper/).
+- Backend: Firebase project `projection-mapper-jk` (Blaze plan, Jeff's billing): Firestore (nam5), Auth (Google +
+  Anonymous; `krolikjeff-hash.github.io` authorized), Storage, Cloud Function `generateAnimation` (secret
+  `ANTHROPIC_API_KEY`).
+- Project home (spec, decisions, projector notes): `%OneDriveConsumer%\Claude\Home Projects\Projection Mapping\`
   (`START-HERE.md`, `SPEC.md`, `PROJECTOR-ACCESS.md`). Read START-HERE first.
-- Runtime data: `data/` (state, layouts, media, uploaded scenes), git-ignored.
 
-## Current state
-See the project home's START-HERE "Next steps". Deadline: Halloween, Sat 2026-10-31. Hardware: Coolid C2 projector
-(1920×1080 input over HDMI, no ADB) driven by a Raspberry Pi 5 running the player in Chromium kiosk mode.
-
-## How to run
-- `npm install` once, then `node server.js` (port 8080, https 8443). Guest page `/`, setup `/setup` (PIN), player
-  `/player`, QR sign `/qr`.
-- In the Claude desktop app: the `projection-mapper` entry in the project home's `.claude/launch.json` starts it in the
-  browser pane.
+## How to run / deploy
+- Firebase CLI: `C:\Users\kroli\AppData\Roaming\npm\firebase.cmd` (run it in a real terminal tab; installs made from
+  Claude's sandboxed Bash don't reach the user's system). Signed in as krolikjeff@gmail.com.
+- Rules: `firebase deploy --only firestore:rules,storage`. Function: `firebase deploy --only functions`
+  (predeploy copies `js/geometry.js` and `js/model.js` into `functions/shared/`).
+- Pages: `git push` to main. Local: serve the repo root on localhost (`.claude/launch.json` entry `projection-mapper`).
 
 ## Working rules
-- One npm package only, `@anthropic-ai/sdk` (party generation, `party-server.js`, model `claude-opus-5-5`). Otherwise
-  Node built-ins on the server and plain ES modules in the browser, no build step.
-- Don't spend the user's API money in tests without asking; test the party pipeline with a hand-made `data/scenes/g-*.js`
-  plus a `ready` item in `data/queue.json`, or an invalid test key for the error path. A preview server started from the
-  desktop app may inherit an `ANTHROPIC_API_KEY` that isn't Jeff's choice.
-- WebGL 1 / GLSL ES 1.00 for compatibility.
-- Scene format: `public/scenes/README.md`. Test new scenes in Align off, on a black background, at 1920×1080.
+- No build step: plain ES modules; Firebase JS SDK from gstatic (version pinned in `js/cloud.js`). WebGL 1 / GLSL ES 1.00.
+- Hosts list in three places: `js/cloud.js` HOSTS, `firestore.rules`, `storage.rules`.
+- Built-in scenes must be listed in `BUILTIN_SCENES` (`js/engine.js`); GitHub Pages can't list a folder.
+- Don't spend Jeff's API money in tests without asking; test the party flow with a hand-made scene doc (`scenes/g-test…`)
+  and a `ready` queue item, or ask first.
+- Signing in to Google, entering keys, and billing are Jeff's steps; drive the console in Chrome for the rest.
 
 ## Gotchas learned
-- Background browser tabs throttle requestAnimationFrame: time fades with the real clock, not the per-frame step.
+- Background tabs throttle requestAnimationFrame: fades are timed with the real clock.
 - GLSL `smoothstep` with reversed edges is undefined; use `1.0 - smoothstep(...)`.
+- Firestore can't store arrays of arrays, so show state is stored as JSON text.

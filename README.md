@@ -1,112 +1,72 @@
 # Projection Mapper
 
-A low-cost, Wi-Fi-controlled projection mapper with a party mode where guests' prompts become animations. A small
-Node server (one package: `@anthropic-ai/sdk`) serves:
+Projection mapping for the driveway (and any other surface), with a party mode where guests' prompts become
+animations written by Claude. Static pages on GitHub Pages + Firebase (Firestore, Auth, Storage, one Cloud Function).
 
-- **`/`**: the **guest page**, for party guests' phones (share it with `/qr`). It shows a live view of the projection
-  and a prompt box. Each prompt joins a queue; Claude (`claude-opus-5-5`) writes a GLSL animation for it, fitted to
-  the party surface's shape and masks; it's compile-tested on the player's GPU (and fixed if needed), then plays.
-- **`/setup`**: the host's **setup page** (PIN-locked), for a phone, iPad or PC on the home Wi-Fi. It has a live
-  preview with drag handles, surfaces, masks, playlists, the Party tab (queue, skip, play, retry, API key, PIN),
-  layouts and the schedule.
-- **`/player`**: the full-screen WebGL output that goes to the projector over HDMI (Raspberry Pi 5 in Chromium kiosk
-  mode, or any browser).
-- **`/qr`**: a printable QR-code sign with the guest link.
+**Live:** https://krolikjeff-hash.github.io/projection-mapper/
 
-Every change on the control page reaches every open player at once (Server-Sent Events).
-
-## Run
-
-```
-npm install               # once: the Anthropic SDK
-node server.js            # PORT=8080 by default; PM_DATA=<folder> moves the data folder
-```
-
-First run: open `/setup` and choose a PIN (banner at the top), then paste a Claude API key from
-console.anthropic.com in the Party tab (stored in `data/config.json`, never sent to browsers; a saved key wins over
-`ANTHROPIC_API_KEY`). `PM_PIN=<digits>` in the environment overrides the saved PIN.
-
-It also serves **https on port 8443** with a self-signed certificate it makes once with openssl (`data/cert.pem`), for
-phones that refuse plain http: accept the browser warning once. Delete `data/*.pem` to remake it after the PC's IP changes.
-
-Then open `http://<host>:8080/` (or `https://<host>:8443/`) to control it and `http://<host>:8080/player` on the projector machine. Double-click
-the player to go full screen on a PC.
-
-## Concepts
-
-- **Surface**: a region of the projector image that shows one scene, warped to fit the real object.
-  - *Flat* surfaces have four corner pins (a perspective homography), for the driveway, garage door or a wall.
-  - *Curved* surfaces have a grid of pins with a smooth (Catmull-Rom) mesh, for irregular or curved shapes.
-  - Each surface has a **playlist** of scenes with durations and a crossfade. Timing follows the wall clock, so all
-    players stay in step.
-- **Mask**: a polygon (any shape, concave is fine) blacked out on top of everything, e.g. windows, bushes, the front
-  door.
-- **Align mode**: every surface shows a coloured test grid with a circle. Drag the corners until the circle looks round on
-  the ground.
-- **Layouts**: saved sets of surfaces and masks (one per spot).
-- **Schedule**: the projector fades in at sunset ± offset (or a set time) and out at the end time. The preview ignores it.
-- **Output**: normalised coordinates (0–1); the projector resolution (1920×1080 for the Coolid C2) only sets the preview
-  shape and the arrow-key nudge step.
-
-## Scenes
-
-`public/scenes/*.js` are ES modules; see `public/scenes/README.md` for the format. Built in: magic circle, ground
-cracks (lava), swirling fog, crawling spiders, drifting ghosts, solid colour, image/video file, test grid. Scenes
-uploaded through `PUT /api/scenes/<id>` go to `data/scenes/` and override built-ins with the same id.
-
-## Party mode
-
-- Party tab: **Take requests** on, pick the surface it plays on, seconds per animation, and what to do when the line is
-  empty (replay guests' animations, or the normal playlist).
-- Up to 3 waiting requests per guest; 2 generate at once (`party-server.js` constants). Generated scenes are saved as
-  `data/scenes/g-<id>.js` and the queue as `data/queue.json`; both survive restarts.
-- Claude gets the surface's real aspect ratio, which edge is "far", and the masked areas in the shader's own
-  coordinates. The system prompt sets the rules: WebGL 1 GLSL, Pi-5-friendly cost, black background, bold shapes,
-  kid-appropriate (it turns unsuitable requests into a harmless Halloween alternative).
-- A shader that fails to compile goes back to Claude with the GPU's error message (up to 2 fixes). If no player or setup
-  page is open to test it, it's queued untested.
-- Refused requests use the API's server-side fallback first; a refusal shows as "Fizzled" for the guest.
-
-## Curved surfaces
-
-A curved surface has a grid of pins. With **Space evenly** on (the default), you drag only the outside pins and the
-inside ones re-space evenly between them (a Coons patch); turn it off to place every pin by hand. Changing the pin count
-keeps the curved outline.
-
-## HTTP API (home network only)
-
-Changes need the setup cookie (`POST /api/auth { pin }`), except guest prompts and compile results.
-
-| Method | Path | Body / result |
+| Page | Who | What |
 |---|---|---|
-| GET | `/api/state` | the whole show state |
-| PUT | `/api/state` | `{ state, origin }`, replaces the state and broadcasts it |
-| GET | `/api/events` | SSE stream: `event: state` with `{ state, origin }` |
-| GET | `/api/scenes` | scene ids |
-| PUT | `/api/scenes/<id>` | scene module source (JavaScript) |
-| GET / PUT / DELETE | `/api/media[/<file>]` | list, upload (raw body), delete media files (`data/media/`, served at `/media/`) |
-| GET / PUT / DELETE | `/api/layouts[/<name>]` | list, save `{ surfaces, masks, output }`, delete |
-| GET / POST | `/api/auth` | `{ host, pinSet, lan, port }` / log in `{ pin }` or first-run `{ newPin }` |
-| GET / POST | `/api/queue` | public queue view (`?admin=1` with the cookie: prompts, errors) / guest prompt `{ prompt, by }` |
-| POST | `/api/queue/<id>/<play\|retry\|remove\|skip>` | host queue actions |
-| POST | `/api/compile` | compile-test result from a player `{ nonce, ok, log }` |
-| GET / POST | `/api/config` | API-key status / save `{ apiKey }` or `{ newPin }` |
+| `./` (index.html) | guests | live view of the projection, a prompt box, their requests' place in line |
+| `setup.html` | host (Google sign-in) | surfaces, masks, playlists, Party tab (queue, skip, play, retry), layouts, schedule, show picker |
+| `player.html` | the projector machine | full-screen WebGL output; compile-tests guests' shaders; runs the party rotation when signed in as host |
+| `qr.html` | host | printable QR sign with the guest link |
 
-## Files
+Every page takes `?show=<id>` (default `main`). **One show per projector**: each has its own surfaces, playlists,
+queue and QR code. New shows are made from the setup page's show picker.
 
-- `server.js`: HTTP server, state persistence (`data/state.json`), SSE.
-- `public/js/engine.js`: WebGL renderer (scene textures, warp, stencil masks, crossfades, schedule fade).
-- `public/js/geometry.js`: homography, mesh interpolation, polygon helpers.
-- `public/js/model.js`: state defaults and normalisation, shared with the server.
-- `public/js/sun.js`: sunset time and the show window.
-- `public/js/control.js`, `public/control.html`, `public/css/control.css`: the control page.
-- `public/player.html`: the player.
-- `data/`: runtime data (state, layouts, media, uploaded scenes); not in git.
+## How it fits together
 
-## Raspberry Pi 5 (to do when it arrives)
+- **Firestore** (project `projection-mapper-jk`):
+  - `shows/{show}`: the show's state as JSON text (`stateJson`; corners are nested arrays, which Firestore can't store),
+    plus `partyOpen` for the security rules.
+  - `shows/{show}/live/now`: the guest animation playing now (`itemId, sceneId, title, by, startedAt, until`).
+  - `shows/{show}/queue/{item}`: guest prompts and their status (`queued → generating → testing → ready → playing → played`,
+    or `failed` / `removed`).
+  - `scenes/g-*`: generated shaders. `compileTests/*`: shaders waiting for a GPU compile check. `layouts/*`: saved layouts.
+- **Storage** `media/`: images and videos for the "Image / video file" scene.
+- **Auth**: guests are anonymous; hosts sign in with Google. Hosts are listed in `js/cloud.js` (`HOSTS`),
+  `firestore.rules` and `storage.rules`; keep all three in step.
+- **Cloud Function** `generateAnimation` (`functions/index.js`): runs when a queue item becomes `queued`; asks
+  `claude-opus-5-5` for a WebGL-1 shader fitted to the party surface (aspect ratio, which edge is far, masked areas),
+  has an open player or setup page compile it, sends compile errors back to Claude (up to 2 fixes), then saves the scene
+  and marks the item `ready`. Max 3 waiting requests per guest. Refusals use the API's server-side fallback.
+- **Party rotation**: a host-signed-in setup page or player moves `live/now` to the next ready item every N seconds
+  (transactions, so several open pages don't fight). When the line is empty it replays earlier animations or shows the
+  playlist.
 
-1. Raspberry Pi OS (64-bit, desktop) with Raspberry Pi Imager: set the hostname (`spooky`), Wi-Fi, SSH and user.
-2. `sudo apt install -y nodejs git`, clone this repo, and run `server.js` as a systemd service.
-3. Autostart Chromium in kiosk mode on the HDMI output:
-   `chromium-browser --kiosk --noerrdialogs --disable-infobars --autoplay-policy=no-user-gesture-required http://localhost:8080/player`.
-4. Check the projector's modes with `kmsprint`; set 1920×1080 at 60 Hz.
+## Deploy
+
+```
+cd functions && npm install && cd ..
+firebase deploy --only firestore:rules,storage     # security rules
+firebase functions:secrets:set ANTHROPIC_API_KEY   # once; paste the key from console.anthropic.com
+firebase deploy --only functions                   # the generator
+git push                                           # GitHub Pages serves the repo root
+```
+
+Local testing: serve the repo root on `localhost` (an authorized auth domain), e.g. `py -3 -m http.server 8080`.
+
+## Engine
+
+- **Surfaces**: flat (4 corner pins, perspective homography) or curved (grid of pins, Catmull-Rom mesh). With **Space
+  evenly** on, drag only the outside pins and the inner ones re-space (Coons patch).
+- **Masks**: any polygon, blacked out on top (stencil fill). **Align mode**: test grid with a circle on each surface.
+- **Playlists** per surface with crossfades, timed by the wall clock so every screen stays in step.
+- **Schedule**: fade in at sunset ± offset (or a set time), out at the end time. **Brightness**, **Blackout**.
+- Normalised output coordinates; the projector resolution (1920×1080 for the Coolid C2) sets the preview shape and the
+  nudge step.
+
+Scenes (`scenes/*.js`, format in `scenes/README.md`): magic circle, ground cracks, fog, spiders, ghosts, solid colour,
+image/video file, test grid. New built-in scenes also go in `BUILTIN_SCENES` in `js/engine.js`.
+
+## Known gaps
+
+- Video/image media from Storage needs a CORS rule on the bucket (`gs://projection-mapper-jk.firebasestorage.app`,
+  GET from `https://krolikjeff-hash.github.io`) before it can be drawn into WebGL. Not set yet.
+
+## Raspberry Pi 5
+
+Chromium in kiosk mode on the HDMI output, pointed at the hosted player:
+`chromium-browser --kiosk --noerrdialogs --disable-infobars --autoplay-policy=no-user-gesture-required "https://krolikjeff-hash.github.io/projection-mapper/player.html?show=main"`.
+Sign the player in as host once (button bottom-left for 20 s after loading), so it runs the party rotation.
