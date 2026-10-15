@@ -31,6 +31,12 @@ queue and QR code. New shows are made from the setup page's show picker.
   `claude-opus-5-5` for a WebGL-1 shader fitted to the party surface (aspect ratio, which edge is far, masked areas),
   has an open player or setup page compile it, sends compile errors back to Claude (up to 2 fixes), then saves the scene
   and marks the item `ready`. Max 3 waiting requests per guest. Refusals use the API's server-side fallback.
+- **Family-friendly safeguards** (2026-10-15): every request is first screened by Claude (`screenRequest`, low effort):
+  gore, violence against people or animals, sexual content, hate, harassment, drugs/alcohol, profanity, real people,
+  self-harm, personal info and prompt manipulation are turned down (`status: rejected`, friendly message for the guest,
+  category + reason for the host); rude display names become "A guest" (`byOriginal` keeps what was typed). The
+  generator's own prompt also keeps output kid-appropriate. **Hold for my OK** (Party tab, `party.approve`): finished
+  animations wait as `held` until the host taps Approve.
 - **Party rotation**: a host-signed-in setup page or player moves `live/now` to the next ready item every N seconds
   (transactions, so several open pages don't fight). When the line is empty it replays earlier animations or shows the
   playlist.
