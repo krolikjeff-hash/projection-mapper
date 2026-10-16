@@ -161,11 +161,12 @@ class CanvasInstance {
 }
 
 export class Engine {
-  // opts: preview (ignore schedule/blackout), contentLong (scene texture size, long side), maxDpr
+  // opts: preview (ignore schedule/blackout), contentLong (scene texture size, long side), maxDpr,
+  // antialias (MSAA on the output), fps (cap: render only every Nth display refresh, for steady pacing on slow GPUs)
   constructor(canvas, opts = {}) {
     this.canvas = canvas;
-    this.opts = { contentLong: 1024, maxDpr: 2, ...opts };
-    const gl = canvas.getContext('webgl', { stencil: true, antialias: true, alpha: false, premultipliedAlpha: false });
+    this.opts = { contentLong: 1024, maxDpr: 2, antialias: true, fps: 0, ...opts };
+    const gl = canvas.getContext('webgl', { stencil: true, antialias: this.opts.antialias, alpha: false, premultipliedAlpha: false });
     if (!gl) throw new Error('WebGL is not available in this browser.');
     this.gl = gl;
     this.warp = program(gl, VS_WARP, FS_WARP);
@@ -187,9 +188,17 @@ export class Engine {
   setState(s) { this.state = s; }
 
   start() {
+    let last = -1e9;
+    this.stats = { frames: 0, since: performance.now(), worst: 0, prev: 0 };
     const loop = (ts) => {
-      try { this.frame(ts); } catch (e) { console.error(e); }
       this.raf = requestAnimationFrame(loop);
+      // With an fps cap, skip refreshes so frames land on an even beat (e.g. every 2nd vsync at 60 Hz = steady 30).
+      if (this.opts.fps && ts - last < 1000 / this.opts.fps - 4) return;
+      last = ts;
+      try { this.frame(ts); } catch (e) { console.error(e); }
+      const st = this.stats;
+      if (st.prev) st.worst = Math.max(st.worst, ts - st.prev);
+      st.prev = ts; st.frames++;
     };
     this.raf = requestAnimationFrame(loop);
   }

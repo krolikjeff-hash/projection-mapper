@@ -20,7 +20,14 @@
   const msg = document.getElementById('msg');
   let engine;
   try {
-    engine = new Engine(document.getElementById('c'), { contentLong: 1024 });
+    // Tuning for slow GPUs (Pi 5): ?fps=30 (steady cap), ?res=640 (animation texture size), ?aa=0 (no MSAA).
+    const q = new URLSearchParams(location.search);
+    engine = new Engine(document.getElementById('c'), {
+      contentLong: Math.min(2048, Math.max(256, +q.get('res') || 1024)),
+      antialias: q.get('aa') !== '0',
+      fps: +q.get('fps') || 0,
+    });
+    window.engine = engine;   // tools/pi.py reads engine.stats
   } catch (e) {
     msg.textContent = 'Player error: ' + e.message;
     throw e;
