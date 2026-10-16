@@ -5,10 +5,12 @@
   cdp.py eval '<js>'             evaluate JS in the page, print the JSON result
   cdp.py reload [--hard]         reload (hard = bypass cache)
   cdp.py goto <url>              navigate the kiosk tab
+  cdp.py close-others            close stray windows (popups), keep the player
 """
 import base64, json, os, socket, struct, sys, urllib.request
 
 PORT = 9222
+PLAYER = 'https://krolikjeff-hash.github.io/projection-mapper/'
 
 
 def page_ws():
@@ -16,7 +18,18 @@ def page_ws():
     pages = [t for t in tabs if t.get('type') == 'page']
     if not pages:
         sys.exit('no page tab')
-    return pages[0]
+    # Prefer the player tab over stray windows (e.g. a sign-in popup).
+    return next((t for t in pages if t['url'].startswith(PLAYER)), pages[0])
+
+
+def close_others():
+    """Close every page tab except the player (popups left open on a headless kiosk)."""
+    tabs = json.load(urllib.request.urlopen(f'http://127.0.0.1:{PORT}/json/list', timeout=5))
+    keep = page_ws()['id']
+    for t in tabs:
+        if t.get('type') == 'page' and t['id'] != keep:
+            urllib.request.urlopen(f"http://127.0.0.1:{PORT}/json/close/{t['id']}", timeout=5).read()
+            print('closed', t['url'][:60])
 
 
 class WS:
@@ -83,6 +96,8 @@ def main(argv):
         sys.exit(__doc__)
     tab = page_ws()
     cmd = argv[0]
+    if cmd == 'close-others':
+        close_others(); return
     if cmd == 'url':
         print(tab['url']); print(tab['title']); return
     ws = WS(tab['webSocketDebuggerUrl'])

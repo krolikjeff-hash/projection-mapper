@@ -48,7 +48,7 @@ export const isHostUser = (u) => !!(u && !u.isAnonymous && HOSTS.includes((u.ema
 
 // Projector players (their own anonymous logins, no Google account on the device) that may run the party rotation.
 // Keep in step with isPlayer() in firestore.rules. A player shows its ID on mouse move; `tools/pi.py status` prints it.
-export const PLAYER_UIDS = [];
+export const PLAYER_UIDS = ['AIcstcOR6fZWu9qzewTaZvk7e773'];   // spooky (Pi 5, show main), 2026-10-15
 export const canDrive = (u) => !!u && (isHostUser(u) || PLAYER_UIDS.includes(u.uid));
 
 export function whenAuthed() {

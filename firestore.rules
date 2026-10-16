@@ -8,6 +8,9 @@ service cloud.firestore {
         && request.auth.token.email in ['krolikjeff@gmail.com'];
     }
     function signedIn() { return request.auth != null; }
+    // Projector players' own anonymous logins (keep in step with PLAYER_UIDS in js/cloud.js): they may run the party
+    // rotation only (set live/now, mark queue items playing/played), so no Google account lives on a projector device.
+    function isPlayer() { return request.auth != null && request.auth.uid in ['AIcstcOR6fZWu9qzewTaZvk7e773']; }   // spooky (Pi 5)
 
     match /shows/{show} {
       allow read: if true;
@@ -16,6 +19,8 @@ service cloud.firestore {
       match /live/{doc} {
         allow read: if true;
         allow write: if isHost();
+        allow create, update: if isPlayer() && doc == 'now'
+          && request.resource.data.keys().hasOnly(['itemId', 'sceneId', 'title', 'by', 'startedAt', 'until']);
       }
 
       match /queue/{item} {
@@ -30,6 +35,9 @@ service cloud.firestore {
           && request.resource.data.createdAt == request.time
           && get(/databases/$(database)/documents/shows/$(show)).data.partyOpen == true;
         allow update, delete: if isHost();
+        allow update: if isPlayer()
+          && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['status', 'playedAt', 'plays'])
+          && request.resource.data.status in ['playing', 'played'];
       }
     }
 

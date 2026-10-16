@@ -7,7 +7,8 @@
   py -3 tools/pi.py eval '<js>'          run JS in the player page
   py -3 tools/pi.py reload [--hard]      reload the player
   py -3 tools/pi.py goto <url>           point the kiosk at another page (e.g. ?show=garage)
-  py -3 tools/pi.py restart-player       restart Chromium (the kiosk respawns it)
+  py -3 tools/pi.py close-others         close stray browser windows (popups) on the kiosk
+  py -3 tools/pi.py restart-player      restart Chromium (the kiosk respawns it)
   py -3 tools/pi.py push                 copy pi/kiosk.sh, cdp.py, kanshi.config, labwc-autostart to the Pi
   py -3 tools/pi.py sh '<command>'       any shell command as jeff
   py -3 tools/pi.py reboot               reboot (needs passwordless sudo on the Pi)
@@ -56,11 +57,11 @@ def cdp(*args):
 STATUS = r'''
 echo "host:     $(hostname) $(hostname -I | cut -d' ' -f1), $(uptime -p)"
 echo "temp:     $(vcgencmd measure_temp | cut -d= -f2), throttled=$(vcgencmd get_throttled | cut -d= -f2) (0x0 = OK)"
-echo "wifi:     $(nmcli -t -f ACTIVE,SSID,SIGNAL dev wifi | grep '^yes' | cut -d: -f2-3 | sed 's/:/ signal /')%"
+echo "wifi:     $(nmcli -t -f ACTIVE,SSID,SIGNAL dev wifi list --rescan no | grep '^yes' | cut -d: -f2-3 | sed 's/:/ signal /')%"
 echo "disk:     $(df -h / | awk 'NR==2{print $4" free of "$2}'), mem $(free -m | awk 'NR==2{print $7" MB available"}')"
 echo "display:  $(WAYLANDENV wlr-randr | awk '/^HDMI/{o=$1} /Enabled: yes/{print o}' | paste -sd' ')  HDMI-A-1 $(cat /sys/class/drm/card1-HDMI-A-1/status)"
 echo "chromium: $(pgrep -c -x chromium) processes"
-~/bin/cdp.py eval 'const p = window.playerStatus || {}; `${location.search}, login ${p.user || "-"} uid ${p.uid || "-"}, party rotation ${p.driver ? "RUN HERE" : "not here"}, ${document.visibilityState}`' 2>&1 | sed 's/^/player:   /'
+~/bin/cdp.py eval '(() => { const p = window.playerStatus || {}; return `${location.search}, login ${p.user || "-"} uid ${p.uid || "-"}, party rotation ${p.driver ? "RUN HERE" : "not here"}, ${document.visibilityState}`; })()' 2>&1 | sed 's/^/player:   /'
 '''.replace('WAYLANDENV', WAYLAND)
 
 
@@ -80,7 +81,7 @@ def main(argv):
         out.write_bytes(png)
         print(out)
         return
-    if cmd in ('url', 'eval', 'reload', 'goto'):
+    if cmd in ('url', 'eval', 'reload', 'goto', 'close-others'):
         sys.exit(cdp(cmd, *rest))
     if cmd == 'restart-player':
         # pkill -x matches the process name only, so it never kills this SSH session's own shell.
