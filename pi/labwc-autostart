@@ -1,0 +1,3 @@
+# Kiosk session (Claude 2026-10-15). The desktop/taskbar are left out; delete this file to get them back.
+/usr/bin/kanshi &
+/usr/bin/lwrespawn /home/jeff/bin/kiosk.sh &
