@@ -12,6 +12,13 @@ Claude logs in with its key (`~/.ssh/pi_projection` on VENGEANCE); sudo needs Je
 | `kanshi.config` | `~/.config/kanshi/config` | projector only on HDMI-A-1 at 1920x1080@60, HDMI-A-2 off |
 | `setup-ssh.sh` | run once | installs Claude's key, SSH on, Wi-Fi country, hostname |
 
+## No Google account on the Pi
+The player runs the party rotation with its **own anonymous Firebase login** (uid `AIcstcOR6fZWu9qzewTaZvk7e773`,
+kept in the kiosk profile). That uid is listed in `PLAYER_UIDS` (`js/cloud.js`) and `isPlayer()` (`firestore.rules`),
+which allows only the rotation writes: set `live/now`, mark queue items playing/played. A stolen Pi can't change shows,
+layouts or scenes. If the kiosk profile is ever wiped, the Pi gets a new uid: read it with `tools/pi.py status`, put it
+in both lists, `firebase deploy --only firestore:rules`, push.
+
 ## Remote control (headless, up the pole)
 `py -3 tools/pi.py <command>` from a PC with the key: `status` (temp, throttling, Wi-Fi signal, display, page,
 host sign-in), `shot` (screenshot of the projector output), `url`, `eval '<js>'`, `reload [--hard]`, `goto <url>`,
