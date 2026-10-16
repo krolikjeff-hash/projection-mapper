@@ -55,6 +55,7 @@
   onUser(async (u) => {
     if (!u) { await ensureSignedIn(); return; }
     user = u;
+    window.playerStatus = { user: u.email || 'anonymous', host: isHostUser(u) };   // read remotely by tools/pi.py status
     if (isHostUser(u) && !stopDriver) stopDriver = startDriver(() => state);
     prompt();
   });

@@ -6,10 +6,17 @@ Claude logs in with its key (`~/.ssh/pi_projection` on VENGEANCE); sudo needs Je
 ## Files (copy to the Pi)
 | Repo file | On the Pi | What |
 |---|---|---|
-| `kiosk.sh` | `~/bin/kiosk.sh` | full-screen Chromium on `player.html?show=main`, waits for Wi-Fi, clears the crash bar |
+| `kiosk.sh` | `~/bin/kiosk.sh` | full-screen Chromium on `player.html?show=main` (profile `~/.config/chromium-kiosk`, DevTools on 127.0.0.1:9222 only), waits for Wi-Fi, clears the crash bar |
+| `cdp.py` | `~/bin/cdp.py` | drives that Chromium (url / eval / reload / goto), stdlib Python |
 | `labwc-autostart` | `~/.config/labwc/autostart` | kiosk session (no desktop/taskbar; delete the file to get them back) |
 | `kanshi.config` | `~/.config/kanshi/config` | projector only on HDMI-A-1 at 1920x1080@60, HDMI-A-2 off |
 | `setup-ssh.sh` | run once | installs Claude's key, SSH on, Wi-Fi country, hostname |
+
+## Remote control (headless, up the pole)
+`py -3 tools/pi.py <command>` from a PC with the key: `status` (temp, throttling, Wi-Fi signal, display, page,
+host sign-in), `shot` (screenshot of the projector output), `url`, `eval '<js>'`, `reload [--hard]`, `goto <url>`,
+`restart-player`, `push` (repo `pi/` files to the Pi), `sh '<cmd>'`, `reboot` (only with passwordless sudo).
+Everything runs over SSH; nothing new listens on the network.
 
 ## Boot partition (`/boot/firmware`, edit from a PC)
 - `cmdline.txt` ends with `video=HDMI-A-1:1920x1080@60D video=HDMI-A-2:1920x1080@60D` (forces output if the
