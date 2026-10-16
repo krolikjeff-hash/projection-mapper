@@ -102,6 +102,7 @@ def main(argv):
         print(tab['url']); print(tab['title']); return
     ws = WS(tab['webSocketDebuggerUrl'])
     if cmd == 'eval':
+        ws.s.settimeout(300)   # evals may await a promise (e.g. a timed measurement)
         r = ws.call('Runtime.evaluate', expression=argv[1], returnByValue=True, awaitPromise=True)
         if 'exceptionDetails' in r:
             sys.exit('JS error: ' + json.dumps(r['exceptionDetails'].get('exception', {}).get('description')))

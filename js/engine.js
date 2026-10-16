@@ -180,6 +180,7 @@ export class Engine {
     this.geoms = new Map();
     this.state = null;
     this.master = 0;
+    this.scale = 1;   // adaptive shader resolution (see start())
     this.t0 = performance.now();
     this.lastT = 0;
     this.errors = new Map();
@@ -190,6 +191,7 @@ export class Engine {
   start() {
     let last = -1e9;
     this.stats = { frames: 0, since: performance.now(), worst: 0, prev: 0 };
+    const gov = { t0: performance.now(), n: 0, good: 0 };
     const loop = (ts) => {
       this.raf = requestAnimationFrame(loop);
       // With an fps cap, skip refreshes so frames land on an even beat (e.g. every 2nd vsync at 60 Hz = steady 30).
@@ -199,6 +201,17 @@ export class Engine {
       const st = this.stats;
       if (st.prev) st.worst = Math.max(st.worst, ts - st.prev);
       st.prev = ts; st.frames++;
+      // Adaptive resolution: heavy shaders are fill-rate bound on slow GPUs (Pi 5: Bat Burst 12 fps at 1024 px,
+      // 33 at 512), so each second the shader texture scale moves to hold the target rate (the cap, else 60).
+      gov.n++;
+      const span = ts - gov.t0;
+      if (span >= 1000) {
+        const target = this.opts.fps || 60, fps = gov.n * 1000 / span;
+        if (fps < target * 0.9) { this.scale = Math.max(0.25, this.scale * Math.max(0.7, Math.sqrt(fps / target) * 0.97)); gov.good = 0; }
+        else if (fps >= target * 0.95 && this.scale < 1 && ++gov.good >= 3) { this.scale = Math.min(1, this.scale * 1.1); gov.good = 0; }
+        st.fps = +fps.toFixed(1); st.scale = +this.scale.toFixed(2);
+        gov.t0 = ts; gov.n = 0;
+      }
     };
     this.raf = requestAnimationFrame(loop);
   }
@@ -358,7 +371,9 @@ export class Engine {
       }
       for (const L of layers) {
         const key = surf.id + '|' + L.idx;
-        const inst = this.instance(key, L.entry.scene, cw, ch);
+        // Shader scenes follow the adaptive scale; canvas scenes keep their size (resizing resets their sprites).
+        const sc = loadScene(L.entry.scene).def?.kind === 'shader' ? this.scale : 1;
+        const inst = this.instance(key, L.entry.scene, Math.max(16, Math.round(cw * sc)), Math.max(16, Math.round(ch * sc)));
         if (!inst) continue;
         used.add(key);
         inst.render(L.time, dt, sceneParams(inst.def, L.entry.params));

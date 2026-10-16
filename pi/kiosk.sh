@@ -1,7 +1,7 @@
 #!/bin/bash
 # Projection Mapper kiosk: full-screen Chromium on the hosted player (Claude 2026-10-15).
 # Remote control: DevTools on 127.0.0.1:9222 only (reached through SSH; see cdp.py / tools/pi.py).
-URL="https://krolikjeff-hash.github.io/projection-mapper/player.html?show=main"
+URL="https://krolikjeff-hash.github.io/projection-mapper/player.html?show=main&fps=30"   # steady 30 fps; shader resolution adapts to hold it
 PROFILE=~/.config/chromium-kiosk   # Chromium 136+ refuses remote debugging on the default profile
 P=$PROFILE/Default/Preferences
 # Clear the "Chromium didn't shut down correctly" bar after a power cut.
