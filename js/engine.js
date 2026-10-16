@@ -181,6 +181,7 @@ export class Engine {
     this.state = null;
     this.master = 0;
     this.scale = 1;   // adaptive shader resolution (see start())
+    this.sceneScale = new Map(); this.primary = null; this.fading = false;
     this.t0 = performance.now();
     this.lastT = 0;
     this.errors = new Map();
@@ -205,8 +206,17 @@ export class Engine {
       // 33 at 512), so each second the shader texture scale moves to hold the target rate (the cap, else 60).
       gov.n++;
       const span = ts - gov.t0;
-      if (span >= 1000) {
+      // Each scene starts at the scale it last held steady (the party rotation alternates scenes), and nothing is
+      // adjusted during crossfades, when two scenes draw at once.
+      if (this.primary !== gov.scene) {
+        if (gov.scene && gov.stable) this.sceneScale.set(gov.scene, gov.stable);
+        gov.scene = this.primary; gov.stable = 0; gov.wait = 3; gov.good = 0;
+        if (this.sceneScale.has(this.primary)) this.scale = this.sceneScale.get(this.primary);
+      }
+      if (this.fading) { gov.t0 = ts; gov.n = 0; }
+      else if (span >= 1000) {
         const target = this.opts.fps || 60, fps = gov.n * 1000 / span;
+        if (fps >= target * 0.95) gov.stable = this.scale;
         if (fps < target * 0.96) {
           // A step up that failed right away means we're at this scene's limit: wait longer before trying again.
           // A big drop (new heavy scene) starts the patience over.
@@ -360,6 +370,7 @@ export class Engine {
     if (level <= 0.001) { this.gc(); return; }
 
     const used = new Set();
+    let primary = null, fading = false;
     s.surfaces.forEach((surf, si) => {
       if (!surf.enabled) return;
       const g = this.geometry(surf);
@@ -382,10 +393,13 @@ export class Engine {
         const inst = this.instance(key, L.entry.scene, Math.max(16, Math.round(cw * sc)), Math.max(16, Math.round(ch * sc)));
         if (!inst) continue;
         used.add(key);
+        if (L.alpha >= 0.5) primary = L.entry.scene;
+        if (L.alpha > 0.02 && L.alpha < 0.98) fading = true;
         inst.render(L.time, dt, sceneParams(inst.def, L.entry.params));
         this.drawWarp(g, inst.tex, L.alpha * (s.align ? 1 : surf.opacity ?? 1));
       }
     });
+    this.primary = primary; this.fading = fading;   // for the adaptive-resolution governor
 
     for (const m of s.masks) if (m.enabled) this.drawMask(m.points, s.align ? [1, 0.1, 0.1, 0.45] : [0, 0, 0, 1]);
     if (level < 0.999) this.drawSolidFullscreen([0, 0, 0, 1 - level]);
