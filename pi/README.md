@@ -12,6 +12,14 @@ Claude logs in with its key (`~/.ssh/pi_projection` on VENGEANCE); sudo needs Je
 | `kanshi.config` | `~/.config/kanshi/config` | projector only on HDMI-A-1 at 1920x1080@60, HDMI-A-2 off |
 | `setup-ssh.sh` | run once | installs Claude's key, SSH on, Wi-Fi country, hostname |
 
+## Frame rate (2026-10-15)
+The Pi 5 GPU is fill-rate bound on heavy shaders (Bat Burst Portal 12 fps at 1024 px, Monster Kart 36). The kiosk
+URL has `&fps=30` (a steady every-other-vsync cap), and the engine's adaptive resolution scales each shader scene's
+texture to hold the target, remembering each scene's steady scale. Measured: Monster Kart 30 fps at full res, Bat
+Burst 28-30 at ~0.55. Other player URL knobs: `res=` (texture long side, default 1024), `aa=0` (no MSAA; no gain
+measured). `tools/pi.py eval 'JSON.stringify(engine.stats)'` shows fps and scale.
+After publishing engine changes, `tools/pi.py reload --hard` once the CDN has them (GitHub Pages caches 10 min).
+
 ## No Google account on the Pi
 The player runs the party rotation with its **own anonymous Firebase login** (uid `AIcstcOR6fZWu9qzewTaZvk7e773`,
 kept in the kiosk profile). That uid is listed in `PLAYER_UIDS` (`js/cloud.js`) and `isPlayer()` (`firestore.rules`),
