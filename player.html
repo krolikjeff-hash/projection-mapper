@@ -16,7 +16,7 @@
 <div id="msg"></div>
 <script type="module">
   import { Engine } from './js/engine.js';
-  import { watchShow, watchNow, ensureSignedIn, startCompileTester, startDriver, onUser, isHostUser, signInHost, showId } from './js/cloud.js';
+  import { watchShow, watchNow, ensureSignedIn, startCompileTester, startDriver, onUser, isHostUser, canDrive, showId } from './js/cloud.js';
   const msg = document.getElementById('msg');
   let engine;
   try {
@@ -33,34 +33,26 @@
   watchShow((s) => { state = s; apply(); });
   watchNow((n) => { now = n; apply(); });
 
-  // Signed in as the host, this player also runs the party rotation; anyone can compile-test guests' shaders.
+  // The host (Google) or an allowed player login (PLAYER_UIDS in js/cloud.js) runs the party rotation; no Google
+  // sign-in is needed on a projector device. Anyone can compile-test guests' shaders.
   let stopDriver = null, user = null, hideTimer = 0;
-  // Sign-in prompt (and cursor) for 20 s after load and whenever the mouse moves; H signs in from the keyboard.
-  const prompt = (keep) => {
+  // Player ID and rotation status (and the cursor) for 20 s after load and whenever the mouse moves.
+  const info = () => {
     clearTimeout(hideTimer);
     if (!user) return;
-    hideTimer = setTimeout(() => { msg.textContent = ''; document.body.style.cursor = ''; }, 20000);
-    if (keep === true && msg.textContent) return;   // already showing: just extend it
-    msg.textContent = '';
     document.body.style.cursor = 'default';
-    if (isHostUser(user)) {
-      msg.textContent = `Host player: ${user.email} (show "${showId}")`;
-    } else {
-      const b = document.createElement('button');
-      b.textContent = `Sign in as host (runs the party rotation for show "${showId}") — or press H`;
-      b.onclick = () => signInHost();
-      msg.append(b);
-    }
+    msg.textContent = `Show "${showId}" · ${isHostUser(user) ? user.email : 'player ' + user.uid}` +
+      ` · party rotation ${canDrive(user) ? 'ON (this player runs it)' : 'off here (add this player ID to PLAYER_UIDS)'}`;
+    hideTimer = setTimeout(() => { msg.textContent = ''; document.body.style.cursor = ''; }, 20000);
   };
   onUser(async (u) => {
     if (!u) { await ensureSignedIn(); return; }
     user = u;
-    window.playerStatus = { user: u.email || 'anonymous', host: isHostUser(u) };   // read remotely by tools/pi.py status
-    if (isHostUser(u) && !stopDriver) stopDriver = startDriver(() => state);
-    prompt();
+    window.playerStatus = { user: u.email || 'anonymous', uid: u.uid, host: isHostUser(u), driver: canDrive(u) };   // tools/pi.py status
+    if (canDrive(u) && !stopDriver) stopDriver = startDriver(() => state);
+    info();
   });
-  addEventListener('mousemove', () => prompt(true));
-  addEventListener('keydown', (e) => { if (e.key.toLowerCase() === 'h' && user && !isHostUser(user)) signInHost(); });
+  addEventListener('mousemove', info);
   startCompileTester(engine);
 
   addEventListener('dblclick', () => document.documentElement.requestFullscreen?.().catch(() => {}));

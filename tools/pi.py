@@ -60,7 +60,7 @@ echo "wifi:     $(nmcli -t -f ACTIVE,SSID,SIGNAL dev wifi | grep '^yes' | cut -d
 echo "disk:     $(df -h / | awk 'NR==2{print $4" free of "$2}'), mem $(free -m | awk 'NR==2{print $7" MB available"}')"
 echo "display:  $(WAYLANDENV wlr-randr | awk '/^HDMI/{o=$1} /Enabled: yes/{print o}' | paste -sd' ')  HDMI-A-1 $(cat /sys/class/drm/card1-HDMI-A-1/status)"
 echo "chromium: $(pgrep -c -x chromium) processes"
-~/bin/cdp.py eval 'const p = window.playerStatus || {}; `${location.search}, signed in: ${p.user || "-"}${p.host ? " (HOST, runs party rotation)" : ""}, ${document.visibilityState}`' 2>&1 | sed 's/^/player:   /'
+~/bin/cdp.py eval 'const p = window.playerStatus || {}; `${location.search}, login ${p.user || "-"} uid ${p.uid || "-"}, party rotation ${p.driver ? "RUN HERE" : "not here"}, ${document.visibilityState}`' 2>&1 | sed 's/^/player:   /'
 '''.replace('WAYLANDENV', WAYLAND)
 
 

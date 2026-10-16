@@ -46,6 +46,11 @@ setSceneLoader(async (id) => {
 // ---------- auth ----------
 export const isHostUser = (u) => !!(u && !u.isAnonymous && HOSTS.includes((u.email || '').toLowerCase()));
 
+// Projector players (their own anonymous logins, no Google account on the device) that may run the party rotation.
+// Keep in step with isPlayer() in firestore.rules. A player shows its ID on mouse move; `tools/pi.py status` prints it.
+export const PLAYER_UIDS = [];
+export const canDrive = (u) => !!u && (isHostUser(u) || PLAYER_UIDS.includes(u.uid));
+
 export function whenAuthed() {
   return new Promise((resolve) => {
     const off = onAuthStateChanged(auth, (u) => { if (u) { off(); resolve(u); } });
@@ -122,7 +127,7 @@ export const queueAction = {
   skip: () => updateDoc(nowRef(), { until: Date.now() }),
 };
 
-// ---------- party rotation ("driver"), run by the host's setup page and a host-signed-in player ----------
+// ---------- party rotation ("driver"), run by the host's setup page and by allowed players (PLAYER_UIDS) ----------
 async function playItem(itemId, state) {
   const seconds = (state?.party?.seconds) || 45;
   await runTransaction(db, async (tx) => {
@@ -142,7 +147,7 @@ export function startDriver(getState) {
   const offN = watchNow((n) => { now = n; });
   const timer = setInterval(async () => {
     const s = getState();
-    if (busy || !s || !isHostUser(auth.currentUser)) return;
+    if (busy || !s || !canDrive(auth.currentUser)) return;
     const t = Date.now();
     if (!s.party.enabled) { if (now && now.itemId) { busy = true; try { await setDoc(nowRef(), { itemId: null, until: 0 }); } finally { busy = false; } } return; }
     if (now && now.itemId && t < now.until) return;
