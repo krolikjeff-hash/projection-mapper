@@ -1,7 +1,8 @@
 # Raspberry Pi 5 player ("spooky")
 
 Raspberry Pi OS 64-bit (Trixie) desktop, user `jeff`, hostname `spooky` (`spooky.local`), Wi-Fi country US.
-Claude logs in with its key (`~/.ssh/pi_projection` on VENGEANCE); sudo needs Jeff's password, so admin steps run on the Pi.
+Claude logs in with its key (`~/.ssh/pi_projection` on VENGEANCE). sudo needs Jeff's password, except reboot and poweroff:
+`/etc/sudoers.d/020_jeff-power` allows exactly `systemctl reboot` and `systemctl poweroff` without one (2026-10-15).
 
 ## Files (copy to the Pi)
 | Repo file | On the Pi | What |
@@ -30,7 +31,8 @@ in both lists, `firebase deploy --only firestore:rules`, push.
 ## Remote control (headless, up the pole)
 `py -3 tools/pi.py <command>` from a PC with the key: `status` (temp, throttling, Wi-Fi signal, display, page,
 host sign-in), `shot` (screenshot of the projector output), `url`, `eval '<js>'`, `reload [--hard]`, `goto <url>`,
-`restart-player`, `push` (repo `pi/` files to the Pi), `sh '<cmd>'`, `reboot` (only with passwordless sudo).
+`restart-player`, `push` (repo `pi/` files to the Pi), `sh '<cmd>'`, `reboot`, `shutdown` (needs a power cycle to come back).
+To show something on the Pi's screen for Jeff (e.g. a password prompt), pause the kiosk first: windows open behind it.
 Everything runs over SSH; nothing new listens on the network.
 
 ## Boot partition (`/boot/firmware`, edit from a PC)
@@ -42,4 +44,4 @@ Everything runs over SSH; nothing new listens on the network.
 
 ## Gotchas (2026-10-15)
 - No video after the first-run wizard + update: the micro-HDMI hot-plug dropped in and out; reseating the plug fixed it.
-- Restart: `sudo reboot` on the Pi (remote `systemctl reboot` needs the password).
+- Restart remotely: `tools/pi.py reboot` (tested 2026-10-15: back in the player in about a minute).

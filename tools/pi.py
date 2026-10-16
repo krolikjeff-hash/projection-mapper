@@ -11,7 +11,8 @@
   py -3 tools/pi.py restart-player      restart Chromium (the kiosk respawns it)
   py -3 tools/pi.py push                 copy pi/kiosk.sh, cdp.py, kanshi.config, labwc-autostart to the Pi
   py -3 tools/pi.py sh '<command>'       any shell command as jeff
-  py -3 tools/pi.py reboot               reboot (needs passwordless sudo on the Pi)
+  py -3 tools/pi.py reboot               reboot the Pi
+  py -3 tools/pi.py shutdown             power it off (only a power cycle brings it back)
 
 Host: PI_HOST env (default spooky.local, fallback 192.168.50.48). Key: ~/.ssh/pi_projection.
 """
@@ -96,8 +97,10 @@ def main(argv):
         return
     if cmd == 'sh':
         sys.exit(ssh(' '.join(rest)))
-    if cmd == 'reboot':
-        sys.exit(ssh('sudo -n systemctl reboot || echo "needs passwordless sudo on the Pi (see pi/README.md)"'))
+    if cmd in ('reboot', 'shutdown'):
+        # Allowed without a password by /etc/sudoers.d/020_jeff-power (reboot and poweroff only).
+        verb = 'reboot' if cmd == 'reboot' else 'poweroff'
+        sys.exit(ssh(f'sudo -n /usr/bin/systemctl {verb} && echo "{verb} sent" || echo "not allowed: see pi/README.md"'))
     sys.exit(__doc__)
 
 
