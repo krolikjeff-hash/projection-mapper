@@ -191,7 +191,7 @@ export class Engine {
   start() {
     let last = -1e9;
     this.stats = { frames: 0, since: performance.now(), worst: 0, prev: 0 };
-    const gov = { t0: performance.now(), n: 0, good: 0 };
+    const gov = { t0: performance.now(), n: 0, good: 0, wait: 3, upAt: -1e9 };
     const loop = (ts) => {
       this.raf = requestAnimationFrame(loop);
       // With an fps cap, skip refreshes so frames land on an even beat (e.g. every 2nd vsync at 60 Hz = steady 30).
@@ -207,8 +207,14 @@ export class Engine {
       const span = ts - gov.t0;
       if (span >= 1000) {
         const target = this.opts.fps || 60, fps = gov.n * 1000 / span;
-        if (fps < target * 0.9) { this.scale = Math.max(0.25, this.scale * Math.max(0.7, Math.sqrt(fps / target) * 0.97)); gov.good = 0; }
-        else if (fps >= target * 0.95 && this.scale < 1 && ++gov.good >= 3) { this.scale = Math.min(1, this.scale * 1.1); gov.good = 0; }
+        if (fps < target * 0.9) {
+          // A step up that failed right away means we're at this scene's limit: wait longer before trying again.
+          // A big drop (new heavy scene) starts the patience over.
+          gov.wait = fps < target * 0.75 ? 3 : (ts - gov.upAt < 2500 ? Math.min(30, gov.wait * 2) : gov.wait);
+          this.scale = Math.max(0.25, this.scale * Math.max(0.7, Math.sqrt(fps / target) * 0.97)); gov.good = 0;
+        } else if (fps >= target * 0.95 && this.scale < 1 && ++gov.good >= gov.wait) {
+          this.scale = Math.min(1, this.scale * 1.1); gov.good = 0; gov.upAt = ts;
+        }
         st.fps = +fps.toFixed(1); st.scale = +this.scale.toFixed(2);
         gov.t0 = ts; gov.n = 0;
       }
