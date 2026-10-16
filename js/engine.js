@@ -207,7 +207,7 @@ export class Engine {
       const span = ts - gov.t0;
       if (span >= 1000) {
         const target = this.opts.fps || 60, fps = gov.n * 1000 / span;
-        if (fps < target * 0.9) {
+        if (fps < target * 0.96) {
           // A step up that failed right away means we're at this scene's limit: wait longer before trying again.
           // A big drop (new heavy scene) starts the patience over.
           gov.wait = fps < target * 0.75 ? 3 : (ts - gov.upAt < 2500 ? Math.min(30, gov.wait * 2) : gov.wait);
