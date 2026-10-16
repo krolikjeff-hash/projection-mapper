@@ -34,20 +34,32 @@
   watchNow((n) => { now = n; apply(); });
 
   // Signed in as the host, this player also runs the party rotation; anyone can compile-test guests' shaders.
-  let stopDriver = null;
-  onUser(async (u) => {
-    if (!u) { await ensureSignedIn(); return; }
-    if (isHostUser(u) && !stopDriver) stopDriver = startDriver(() => state);
+  let stopDriver = null, user = null, hideTimer = 0;
+  // Sign-in prompt (and cursor) for 20 s after load and whenever the mouse moves; H signs in from the keyboard.
+  const prompt = (keep) => {
+    clearTimeout(hideTimer);
+    if (!user) return;
+    hideTimer = setTimeout(() => { msg.textContent = ''; document.body.style.cursor = ''; }, 20000);
+    if (keep === true && msg.textContent) return;   // already showing: just extend it
     msg.textContent = '';
-    if (!isHostUser(u)) {
-      // Shown for 20 s: sign in once with a mouse so this player can run the party rotation.
+    document.body.style.cursor = 'default';
+    if (isHostUser(user)) {
+      msg.textContent = `Host player: ${user.email} (show "${showId}")`;
+    } else {
       const b = document.createElement('button');
-      b.textContent = `Sign in as host (runs the party rotation for show "${showId}")`;
+      b.textContent = `Sign in as host (runs the party rotation for show "${showId}") — or press H`;
       b.onclick = () => signInHost();
       msg.append(b);
-      setTimeout(() => { msg.textContent = ''; }, 20000);
     }
+  };
+  onUser(async (u) => {
+    if (!u) { await ensureSignedIn(); return; }
+    user = u;
+    if (isHostUser(u) && !stopDriver) stopDriver = startDriver(() => state);
+    prompt();
   });
+  addEventListener('mousemove', () => prompt(true));
+  addEventListener('keydown', (e) => { if (e.key.toLowerCase() === 'h' && user && !isHostUser(user)) signInHost(); });
   startCompileTester(engine);
 
   addEventListener('dblclick', () => document.documentElement.requestFullscreen?.().catch(() => {}));
