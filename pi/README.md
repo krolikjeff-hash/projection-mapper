@@ -9,7 +9,7 @@ Claude logs in with its key (`~/.ssh/pi_projection` on VENGEANCE). sudo needs Je
 |---|---|---|
 | `kiosk.sh` | `~/bin/kiosk.sh` | full-screen Chromium on `player.html?show=main` (profile `~/.config/chromium-kiosk`, DevTools on 127.0.0.1:9222 only), waits for Wi-Fi, clears the crash bar |
 | `cdp.py` | `~/bin/cdp.py` | drives that Chromium (url / eval / reload / goto), stdlib Python |
-| `labwc-autostart` | `~/.config/labwc/autostart` | kiosk session (no desktop/taskbar; delete the file to get them back) |
+| `labwc-autostart` | `~/.config/labwc/autostart` | starts kanshi and the kiosk (the stock desktop/taskbar still run underneath, hidden by the full-screen player) |
 | `kanshi.config` | `~/.config/kanshi/config` | projector only on HDMI-A-1 at 1920x1080@60, HDMI-A-2 off |
 | `setup-ssh.sh` | run once | installs Claude's key, SSH on, Wi-Fi country, hostname |
 
